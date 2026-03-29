@@ -36,14 +36,15 @@ Lee esta guía antes de abrir un issue o enviar un pull request.
 
 ## Proceso de contribución
 
-### 1. Fork y branch
+### 1. Rama de trabajo
+
+**Todo el trabajo se realiza en la rama `test`. Nunca se hace commit directamente a `main`.**
+`main` solo recibe cambios mediante Pull Request desde `test`.
 
 ```bash
 git clone https://github.com/<tu-usuario>/stealth-message.git
 cd stealth-message
-git checkout -b feature/descripcion-corta
-# o
-git checkout -b fix/descripcion-corta
+git checkout test
 ```
 
 ### 2. Cambios en el protocolo

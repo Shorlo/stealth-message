@@ -9,6 +9,11 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Changed
+- Establecida la rama `test` como rama de trabajo principal; `main` solo recibe cambios via PR
+- Actualizado `CLAUDE.md` raíz con regla de ramas (siempre trabajar en `test`)
+- Actualizado `CONTRIBUTING.md` con instrucciones de rama de trabajo
+
 ### Added
 - Estructura inicial del monorepo con directorios `cli/`, `macos/`, `windows/`, `linux/`
 - Especificación del protocolo de comunicación v0.1 en `docs/protocol.md`
