@@ -1,14 +1,16 @@
-"""Tests for stealth_cli.crypto.keys.
+"""Tests for stealth_cli.crypto.keys and stealth_cli.crypto.messages.
 
 Run with:
     pytest tests/test_crypto.py -v
 
 Note: RSA-4096 key generation is slow (~2-5 s per key). Session-scoped fixtures
-generate the keypair once and reuse it across all tests.
+generate keypairs once and reuse them across all tests in the session.
 """
 
-import pytest
+import base64
+
 import pgpy
+import pytest
 
 from stealth_cli.crypto.keys import (
     generate_keypair,
@@ -16,6 +18,8 @@ from stealth_cli.crypto.keys import (
     load_private_key,
     load_public_key,
 )
+from stealth_cli.crypto.messages import decrypt, encrypt
+from stealth_cli.exceptions import SignatureError
 
 ALIAS = "Test User"
 PASSPHRASE = "test-passphrase-123"
@@ -41,6 +45,17 @@ def armored_private(keypair: tuple[str, str]) -> str:
 @pytest.fixture(scope="session")
 def armored_public(keypair: tuple[str, str]) -> str:
     return keypair[1]
+
+
+@pytest.fixture(scope="session")
+def decoy_keypair() -> tuple[str, str]:
+    """Second RSA-4096 keypair used to test wrong-sender-key scenarios."""
+    return generate_keypair("Decoy User", PASSPHRASE)
+
+
+@pytest.fixture(scope="session")
+def decoy_public(decoy_keypair: tuple[str, str]) -> str:
+    return decoy_keypair[1]
 
 
 # ---------------------------------------------------------------------------
@@ -176,3 +191,117 @@ def test_get_fingerprint_matches_loaded_key(armored_public: str) -> None:
     raw = str(key.fingerprint).upper()
     expected = " ".join(raw[i : i + 4] for i in range(0, len(raw), 4))
     assert get_fingerprint(armored_public) == expected
+
+
+# ---------------------------------------------------------------------------
+# encrypt
+# ---------------------------------------------------------------------------
+
+
+def test_encrypt_returns_nonempty_string(
+    armored_private: str, armored_public: str
+) -> None:
+    privkey = load_private_key(armored_private, PASSPHRASE)
+    with privkey.unlock(PASSPHRASE):
+        payload = encrypt("hello", armored_public, privkey)
+    assert isinstance(payload, str) and len(payload) > 0
+
+
+def test_encrypt_output_is_valid_base64url(
+    armored_private: str, armored_public: str
+) -> None:
+    privkey = load_private_key(armored_private, PASSPHRASE)
+    with privkey.unlock(PASSPHRASE):
+        payload = encrypt("test", armored_public, privkey)
+    # Must decode without error and without padding issues
+    decoded = base64.urlsafe_b64decode(payload + "==")
+    assert len(decoded) > 0
+
+
+def test_encrypt_output_does_not_expose_plaintext(
+    armored_private: str, armored_public: str
+) -> None:
+    plaintext = "super secret message"
+    privkey = load_private_key(armored_private, PASSPHRASE)
+    with privkey.unlock(PASSPHRASE):
+        payload = encrypt(plaintext, armored_public, privkey)
+    assert plaintext not in payload
+
+
+def test_encrypt_same_plaintext_produces_different_ciphertexts(
+    armored_private: str, armored_public: str
+) -> None:
+    """PGP uses session key randomness; identical plaintexts must produce
+    different ciphertexts."""
+    plaintext = "same message"
+    privkey = load_private_key(armored_private, PASSPHRASE)
+    with privkey.unlock(PASSPHRASE):
+        p1 = encrypt(plaintext, armored_public, privkey)
+        p2 = encrypt(plaintext, armored_public, privkey)
+    assert p1 != p2
+
+
+def test_encrypt_decodes_to_pgp_encrypted_block(
+    armored_private: str, armored_public: str
+) -> None:
+    privkey = load_private_key(armored_private, PASSPHRASE)
+    with privkey.unlock(PASSPHRASE):
+        payload = encrypt("test", armored_public, privkey)
+    armored = base64.urlsafe_b64decode(payload + "==").decode("utf-8")
+    assert "BEGIN PGP MESSAGE" in armored
+
+
+# ---------------------------------------------------------------------------
+# decrypt
+# ---------------------------------------------------------------------------
+
+
+def test_decrypt_roundtrip(armored_private: str, armored_public: str) -> None:
+    """Full encrypt → decrypt cycle must recover the original plaintext."""
+    plaintext = "Hello, stealth-message! Ñoño unicode 🔒"
+    privkey = load_private_key(armored_private, PASSPHRASE)
+    with privkey.unlock(PASSPHRASE):
+        payload = encrypt(plaintext, armored_public, privkey)
+        result = decrypt(payload, privkey, armored_public)
+    assert result == plaintext
+
+
+def test_decrypt_roundtrip_empty_string(
+    armored_private: str, armored_public: str
+) -> None:
+    privkey = load_private_key(armored_private, PASSPHRASE)
+    with privkey.unlock(PASSPHRASE):
+        payload = encrypt("", armored_public, privkey)
+        result = decrypt(payload, privkey, armored_public)
+    assert result == ""
+
+
+def test_decrypt_roundtrip_multiline(
+    armored_private: str, armored_public: str
+) -> None:
+    plaintext = "line one\nline two\nline three"
+    privkey = load_private_key(armored_private, PASSPHRASE)
+    with privkey.unlock(PASSPHRASE):
+        payload = encrypt(plaintext, armored_public, privkey)
+        result = decrypt(payload, privkey, armored_public)
+    assert result == plaintext
+
+
+def test_decrypt_wrong_sender_pubkey_raises_signature_error(
+    armored_private: str, armored_public: str, decoy_public: str
+) -> None:
+    """Decryption with the correct key but wrong sender pubkey for verification
+    must raise SignatureError (protocol.md §2.1: discard if signature invalid)."""
+    privkey = load_private_key(armored_private, PASSPHRASE)
+    with privkey.unlock(PASSPHRASE):
+        payload = encrypt("secret", armored_public, privkey)
+        with pytest.raises(SignatureError):
+            decrypt(payload, privkey, decoy_public)
+
+
+def test_decrypt_returns_string(armored_private: str, armored_public: str) -> None:
+    privkey = load_private_key(armored_private, PASSPHRASE)
+    with privkey.unlock(PASSPHRASE):
+        payload = encrypt("test", armored_public, privkey)
+        result = decrypt(payload, privkey, armored_public)
+    assert isinstance(result, str)
