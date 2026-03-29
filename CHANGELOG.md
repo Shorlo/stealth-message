@@ -10,6 +10,8 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- `cli/stealth_cli/crypto/messages.py`: `encrypt` y `decrypt` (protocolo §2.1) — sign-then-encrypt, Base64 URL-safe, `SignatureError` si la firma es inválida — 10 tests nuevos
+- `cli/stealth_cli/exceptions.py`: `StealthError`, `SignatureError`, `ProtocolError` con código numérico (protocolo §4)
 - `cli/stealth_cli/crypto/keys.py`: `generate_keypair`, `load_private_key`, `load_public_key`, `get_fingerprint` — 21 tests pasando
 - `cli/pyproject.toml` con dependencias, dev-dependencies, entry point y configuración de black/ruff/mypy/pytest
 - Estructura de carpetas de `cli/stealth_cli/` con módulos vacíos: `crypto/`, `network/`, `ui/`, `exceptions.py`, `config.py`, `__main__.py`
