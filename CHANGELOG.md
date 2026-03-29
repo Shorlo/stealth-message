@@ -10,6 +10,9 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Fixed
+- `__main__.py`: suprimidos warnings de pgpy que aparecían en pantalla durante el chat
+  (compresión, self-sigs, revocación, flags, TripleDES) — son limitaciones internas de
+  pgpy que no afectan al cifrado ni a la firma
 - `ui/chat.py`: bucle infinito del prompt — el `asyncio.wait_for` con timeout 0.2s
   cancelaba y reiniciaba `prompt_async` continuamente, imprimiendo el prompt en una
   línea nueva cada vez. Reemplazado por `asyncio.wait(FIRST_COMPLETED)` con una tarea
