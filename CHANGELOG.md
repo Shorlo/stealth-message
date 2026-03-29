@@ -10,6 +10,10 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- `cli/stealth_cli/ui/setup.py`: wizard de primer uso — alias, passphrase con confirmación, RSA-4096 con spinner, muestra fingerprint
+- `cli/stealth_cli/ui/chat.py`: pantalla de chat Rich + prompt_toolkit — modo host y join, mensajes entrantes sin romper el input, `/fp`, `/help`, `/quit`
+- `cli/stealth_cli/__main__.py`: punto de entrada completo — detección primer uso, validación de passphrase, selección de modo interactiva o por flags `--host`/`--join`
+- `cli/stealth_cli/config.py`: persistencia de claves con platformdirs — `save_keypair`, `load_*`, permisos 0600 en clave privada
 - `cli/stealth_cli/network/server.py`: `StealthServer` — WebSocket host con handshake (§1), mensajes cifrados (§2), ping/pong/bye (§3), códigos de error (§4), múltiples conexiones simultáneas
 - `cli/stealth_cli/network/client.py`: `StealthClient` — WebSocket joiner con handshake, envío cifrado, ping con RTT, desconexión limpia
 - 21 tests de integración en `tests/test_network.py` — suite completa: 52 tests pasando
