@@ -1,0 +1,266 @@
+# =============================================================================
+# stealth-message — .gitignore
+# Monorepo: Python (cli/ linux/)  |  Swift/SPM (macos/)  |  C#/.NET (windows/)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# SEGURIDAD — nunca versionar claves ni secretos
+# -----------------------------------------------------------------------------
+*.pem
+*.key
+*.p12
+*.pfx
+*.asc          # ASCII-armored PGP (claves exportadas)
+*.gpg
+*.pgp
+secrets.json
+secrets.yaml
+secrets.toml
+.env
+.env.*
+!.env.example
+
+# -----------------------------------------------------------------------------
+# Python (cli/ y linux/)
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+.venv/
+venv/
+ENV/
+env/
+pip-wheel-metadata/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.log
+*.pot
+*.pyc
+instance/
+.webassets-cache
+profile_default/
+ipython_config.py
+
+# PyInstaller
+*.spec
+dist/
+build/
+
+# -----------------------------------------------------------------------------
+# Swift / Swift Package Manager (macos/)
+# -----------------------------------------------------------------------------
+.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+DerivedData/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+*.xcscmblueprint
+Packages/
+Package.resolved   # descomentar si no quieres fijar versiones
+
+# -----------------------------------------------------------------------------
+# C# / .NET (windows/)
+# -----------------------------------------------------------------------------
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Ll]og/
+[Ll]ogs/
+*.aps
+*.ncb
+*.opendb
+*.opensdf
+*.sdf
+*.cachefile
+*.VC.db
+*.VC.VC.opendb
+*.pidb
+*.svclog
+*.scc
+_TeamCity*
+.TeamCity/
+*.nupkg
+*.snupkg
+*.[Pp]ublish.xml
+*.azurePubxml
+*.pubxml
+*.publishproj
+project.lock.json
+project.fragment.lock.json
+artifacts/
+StyleCopReport.xml
+*_i.c
+*_p.c
+*_h.h
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp_proj
+*_wpftmp.csproj
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+TestResult.xml
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.rptproj.bak
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+.idea/
+$tf/
+*.dotCover
+.axoCover/*
+!.axoCover/settings.json
+coverage*.json
+coverage*.xml
+coverage*.info
+*.coverage
+*.coveragexml
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+*.mm.*
+AutoTest.Net/
+*.GhostDoc.xml
+.ntvs_analysis.dat
+*.plg
+*.opt
+*.vbw
+**/*.HTMLClient/GeneratedArtifacts
+**/*.DesktopClient/GeneratedArtifacts
+**/*.DesktopClient/ModelManifest.xml
+**/*.Server/GeneratedArtifacts
+**/*.Server/ModelManifest.xml
+_Pvt_Extensions
+.paket/
+paket-files/
+.fake/
+.cr/personal
+__pycache__/
+$RECYCLE.BIN/
+*.msm
+*.msi
+*.msix
+*.appx
+*.appxbundle
+*.appxupload
+BundleArtifacts/
+Package.StoreAssociation.xml
+_pkginfo.txt
+*.appx
+!*/.gitkeep
+Generated\ Files/
+ClientBin/
+~$*
+*~
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+*.pfx
+*.publishsettings
+orleans.codegen.cs
+node_modules/
+bower_components/
+
+# -----------------------------------------------------------------------------
+# macOS
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+Icon
+*.icloud
+
+# -----------------------------------------------------------------------------
+# IDEs
+# -----------------------------------------------------------------------------
+# VSCode
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# JetBrains
+.idea/
+*.iml
+*.iws
+
+# Vim / Emacs
+*.swp
+*.swo
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+
+# -----------------------------------------------------------------------------
+# Misc
+# -----------------------------------------------------------------------------
+*.bak
+*.orig
+*.tmp
+Thumbs.db
+ehthumbs.db
