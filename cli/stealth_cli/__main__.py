@@ -45,6 +45,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="stealth-cli",
         description="End-to-end encrypted PGP chat — no server, no accounts.",
+        epilog="Run with --manual for the full user guide.",
     )
 
     mode = parser.add_mutually_exclusive_group()
@@ -60,6 +61,11 @@ def _parse_args() -> argparse.Namespace:
         "--join",
         metavar="URI",
         help="Join a session at ws://HOST:PORT",
+    )
+    mode.add_argument(
+        "--manual",
+        action="store_true",
+        help="Show the full user manual and exit",
     )
 
     parser.add_argument(
@@ -81,6 +87,10 @@ async def _async_main() -> int:
 
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
+
+    if args.manual:
+        _print_manual()
+        return 0
 
     # ------------------------------------------------------------------ #
     # Step 1 — First use: run the setup wizard.                           #
@@ -191,6 +201,213 @@ async def _prompt_mode() -> tuple[str, int, str | None]:
             return "join", DEFAULT_PORT, uri.strip()
 
         console.print("[red]Please enter 'h' or 'j'.[/red]")
+
+
+# --------------------------------------------------------------------------- #
+# Manual                                                                        #
+# --------------------------------------------------------------------------- #
+
+
+def _print_manual() -> None:
+    """Print the full user manual with Rich formatting."""
+    from rich.markdown import Markdown
+    from rich.padding import Padding
+    from rich.panel import Panel
+    from rich.rule import Rule
+    from rich.text import Text
+
+    c = Console()
+
+    # Header
+    c.print()
+    c.print(
+        Panel(
+            Text.assemble(
+                ("stealth-message", "bold white"),
+                " — ",
+                ("User Manual", "bold cyan"),
+                "\n",
+                ("End-to-end encrypted PGP chat. No server. No accounts. No metadata.", "dim"),
+            ),
+            border_style="cyan",
+            padding=(1, 4),
+        )
+    )
+
+    manual = """\
+## How it works
+
+Two people communicate directly, machine to machine, over a WebSocket
+connection. Every message is encrypted with the recipient's PGP public key
+and signed with the sender's private key before leaving the machine.
+No server ever sees the content.
+
+One participant acts as **host** (starts the server) and the other **joins**.
+Both roles send and receive messages equally once connected.
+
+---
+
+## First use
+
+The first time you run the program, a setup wizard starts automatically:
+
+```
+python -m stealth_cli
+```
+
+The wizard asks for:
+
+- **Alias** — your display name, visible to the other participant (max 64 chars).
+- **Passphrase** — protects your private key on disk (min 8 chars, asked twice).
+
+An RSA-4096 key pair is then generated and saved to disk:
+
+- **macOS:** `~/Library/Application Support/stealth-message/`
+- **Linux / WSL:** `~/.config/stealth-message/`
+
+Your **fingerprint** is shown at the end. Share it with your peer over an
+independent channel (in person, by phone) so they can verify your identity.
+
+---
+
+## Starting a session
+
+### Alice — host mode
+
+```
+python -m stealth_cli --host           # default port 8765
+python -m stealth_cli --host 9000      # custom port
+```
+
+Alice's terminal shows her public IP and port to give to Bob.
+
+### Bob — join mode
+
+```
+python -m stealth_cli --join ws://ALICE_IP:8765
+```
+
+### Interactive mode (no flags)
+
+```
+python -m stealth_cli
+```
+
+The program asks whether to host or join and prompts for the address.
+
+---
+
+## Connecting over the internet
+
+The host needs a publicly reachable IP. Two options:
+
+**Option A — Port forwarding (no third-party software)**
+
+1. Find your public IP:
+   `curl ifconfig.me`
+2. In your router: NAT → Port Forwarding → TCP port 8765 → your local IP.
+3. Give Bob: `ws://YOUR_PUBLIC_IP:8765`
+4. Close the port forwarding rule when you finish.
+
+> If port forwarding does not work, your ISP may use CG-NAT.
+> Check: compare the WAN IP shown in your router with `curl ifconfig.me`.
+> If they differ, contact your ISP and request a dedicated public IP.
+
+**Option B — Tailscale (no port forwarding)**
+
+Tailscale creates a private WireGuard tunnel directly between the two
+machines. No router configuration needed.
+
+1. Both install Tailscale (free for personal use).
+2. Alice shares her device with Bob from the Tailscale web console
+   ("Share node" — Bob only sees Alice's machine, not her whole network).
+3. Run `tailscale status` to see each other's `100.x.x.x` addresses.
+4. Alice: `python -m stealth_cli --host`
+5. Bob: `python -m stealth_cli --join ws://ALICE_TAILSCALE_IP:8765`
+6. Revoke the share when done.
+
+> With Tailscale, messages travel encrypted by WireGuard AND by PGP —
+> two independent layers. Even if WireGuard were compromised, the PGP
+> content remains unreadable.
+
+---
+
+## Chat commands
+
+| Command | Action |
+|---------|--------|
+| `/fp`   | Show the peer's PGP fingerprint |
+| `/help` | Show available commands |
+| `/quit` or `/exit` or `/q` | Close the session cleanly |
+| `Ctrl+C` | Also closes the session |
+
+---
+
+## Identity verification
+
+After connecting, both sides see the peer's alias and fingerprint:
+
+```
+  ✓ Connected to Bob
+    Fingerprint: B2C3 D4E5 F678 90AB CDEF 1234 5678 90AB CDEF 1234
+```
+
+**Always verify the fingerprint over an independent channel before trusting
+the conversation.** If the fingerprints match, the connection is authentic.
+If they do not, disconnect immediately.
+
+---
+
+## Security model
+
+| Property | Guarantee |
+|----------|-----------|
+| Message confidentiality | Only the recipient can decrypt (RSA-4096 + AES-256) |
+| Message authenticity | Every message is signed; invalid signatures are rejected |
+| Forward secrecy | Not yet implemented (planned for protocol v2) |
+| Private key storage | Disk-encrypted with your passphrase (AES-256) |
+| Passphrase | Never written to disk, only held in memory during the session |
+| No accounts | Identity is the PGP key — no username, email, or phone number |
+
+---
+
+## Subsequent uses
+
+From the second run onward, the wizard is skipped. The program asks only
+for the passphrase:
+
+```
+Welcome back, Alice
+Passphrase: ****
+```
+
+A wrong passphrase exits immediately without loading any data.
+
+---
+
+## Flags reference
+
+| Flag | Description |
+|------|-------------|
+| `--host [PORT]` | Host a session on PORT (default 8765) |
+| `--join URI` | Join a session at ws://host:port |
+| `--manual` | Show this manual |
+| `--debug` | Enable verbose debug logging |
+| `--help` | Show short usage summary |
+
+---
+
+## Running the tests
+
+```
+cd cli
+source .venv/bin/activate
+pytest tests/ -v
+```
+"""
+
+    c.print(Padding(Markdown(manual), (0, 2)))
+    c.print()
 
 
 # --------------------------------------------------------------------------- #
