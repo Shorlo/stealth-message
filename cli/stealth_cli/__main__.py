@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import logging
 import sys
+import warnings
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
@@ -35,6 +36,15 @@ from stealth_cli.ui.setup import run_setup
 
 console = Console()
 logger = logging.getLogger(__name__)
+
+# Suppress known pgpy warnings that do not affect crypto correctness.
+# These are unimplemented features inside pgpy itself (self-sig parsing,
+# revocation checks, flags) and a benign compression preference mismatch.
+warnings.filterwarnings("ignore", message=".*compression algorithm.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*Self-sigs verification.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*Revocation checks.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*Flags.*checks are not yet implemented.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*TripleDES.*", category=UserWarning)
 
 _STYLE = Style.from_dict({"prompt": "bold cyan"})
 
