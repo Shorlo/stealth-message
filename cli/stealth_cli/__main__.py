@@ -22,6 +22,11 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.styles import Style
 from rich.console import Console
+from rich.markdown import Markdown
+from rich.padding import Padding
+from rich.panel import Panel
+from rich.rule import Rule
+from rich.text import Text
 
 from stealth_cli import config
 from stealth_cli.crypto.keys import load_private_key
@@ -210,12 +215,6 @@ async def _prompt_mode() -> tuple[str, int, str | None]:
 
 def _print_manual() -> None:
     """Print the full user manual with Rich formatting."""
-    from rich.markdown import Markdown
-    from rich.padding import Padding
-    from rich.panel import Panel
-    from rich.rule import Rule
-    from rich.text import Text
-
     c = Console()
 
     # Header
