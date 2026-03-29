@@ -9,6 +9,12 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Fixed
+- `ui/chat.py`: bucle infinito del prompt — el `asyncio.wait_for` con timeout 0.2s
+  cancelaba y reiniciaba `prompt_async` continuamente, imprimiendo el prompt en una
+  línea nueva cada vez. Reemplazado por `asyncio.wait(FIRST_COMPLETED)` con una tarea
+  para el prompt y otra para el stop event; el prompt ya no se interrumpe nunca.
+
 ### Added
 - `.vscode/settings.json`: intérprete Python apuntado al `.venv` de `cli/` para resolver warnings de Pylance
 - `--manual` flag en `__main__.py`: manual de usuario completo renderizado con Rich (configuración, modos host/join, internet, comandos de chat, seguridad, flags)
