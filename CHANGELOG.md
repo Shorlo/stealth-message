@@ -10,6 +10,7 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- `.vscode/settings.json`: intérprete Python apuntado al `.venv` de `cli/` para resolver warnings de Pylance
 - `--manual` flag en `__main__.py`: manual de usuario completo renderizado con Rich (configuración, modos host/join, internet, comandos de chat, seguridad, flags)
 - `cli/stealth_cli/ui/setup.py`: wizard de primer uso — alias, passphrase con confirmación, RSA-4096 con spinner, muestra fingerprint
 - `cli/stealth_cli/ui/chat.py`: pantalla de chat Rich + prompt_toolkit — modo host y join, mensajes entrantes sin romper el input, `/fp`, `/help`, `/quit`
