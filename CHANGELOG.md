@@ -9,6 +9,11 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Added
+- `cli/pyproject.toml` con dependencias, dev-dependencies, entry point y configuración de black/ruff/mypy/pytest
+- Estructura de carpetas de `cli/stealth_cli/` con módulos vacíos: `crypto/`, `network/`, `ui/`, `exceptions.py`, `config.py`, `__main__.py`
+- Tests vacíos en `cli/tests/`: `test_crypto.py`, `test_network.py`
+
 ### Changed
 - Establecida la rama `test` como rama de trabajo principal; `main` solo recibe cambios via PR
 - Actualizado `CLAUDE.md` raíz con regla de ramas (siempre trabajar en `test`)
