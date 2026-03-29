@@ -10,6 +10,9 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- `cli/stealth_cli/network/server.py`: `StealthServer` — WebSocket host con handshake (§1), mensajes cifrados (§2), ping/pong/bye (§3), códigos de error (§4), múltiples conexiones simultáneas
+- `cli/stealth_cli/network/client.py`: `StealthClient` — WebSocket joiner con handshake, envío cifrado, ping con RTT, desconexión limpia
+- 21 tests de integración en `tests/test_network.py` — suite completa: 52 tests pasando
 - `cli/stealth_cli/crypto/messages.py`: `encrypt` y `decrypt` (protocolo §2.1) — sign-then-encrypt, Base64 URL-safe, `SignatureError` si la firma es inválida — 10 tests nuevos
 - `cli/stealth_cli/exceptions.py`: `StealthError`, `SignatureError`, `ProtocolError` con código numérico (protocolo §4)
 - `cli/stealth_cli/crypto/keys.py`: `generate_keypair`, `load_private_key`, `load_public_key`, `get_fingerprint` — 21 tests pasando
