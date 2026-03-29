@@ -1,12 +1,12 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "stealth-message-cli"
 version = "0.1.0"
 description = "Terminal client for stealth-message — end-to-end encrypted PGP chat"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "pgpy>=0.6.0",
     "websockets>=12.0",
