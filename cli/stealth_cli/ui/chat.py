@@ -202,27 +202,61 @@ class ChatScreen:
     # ------------------------------------------------------------------ #
 
     async def _input_loop(self, send_fn) -> None:  # type: ignore[type-arg]
-        """Read user input and send it; print queued incoming messages."""
+        """Read user input and send it; print queued incoming messages.
+
+        The prompt runs as a persistent task. When the stop event fires
+        (peer disconnected) the prompt task is cancelled cleanly so the
+        terminal is never left in a broken state.
+        """
         session: PromptSession[str] = PromptSession(style=_STYLE)
 
         # patch_stdout makes Rich's console.print() work while prompt_toolkit
         # holds the input line — incoming messages appear above the prompt.
         with patch_stdout(raw=True):
-            # Printer task: drains the print queue and outputs messages.
             printer = asyncio.create_task(self._printer_task())
 
             try:
                 while not self._stop_event.is_set():
-                    try:
-                        text = await asyncio.wait_for(
-                            session.prompt_async(
-                                HTML(f"<prompt>[{self._alias}] </prompt>"),
-                            ),
-                            timeout=0.2,
+                    # Create one prompt task and one stop-watcher task.
+                    # We wait for whichever completes first — this avoids
+                    # cancelling and restarting the prompt every 0.2 s.
+                    prompt_task = asyncio.create_task(
+                        session.prompt_async(
+                            HTML(f"<prompt>[{self._alias}] </prompt>"),
                         )
-                    except asyncio.TimeoutError:
-                        continue
+                    )
+                    stop_task = asyncio.create_task(self._stop_event.wait())
+
+                    try:
+                        done, pending = await asyncio.wait(
+                            {prompt_task, stop_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                    except (KeyboardInterrupt, EOFError):
+                        prompt_task.cancel()
+                        stop_task.cancel()
+                        break
+
+                    # Cancel whichever task did not finish.
+                    for t in pending:
+                        t.cancel()
+                        try:
+                            await t
+                        except (asyncio.CancelledError, Exception):
+                            pass
+
+                    # If the stop event fired, exit the loop.
+                    if stop_task in done:
+                        break
+
+                    # Retrieve the prompt result.
+                    try:
+                        text: str = prompt_task.result()
                     except (EOFError, KeyboardInterrupt):
+                        break
+                    except asyncio.CancelledError:
+                        break
+                    except Exception:
                         break
 
                     text = text.strip()
@@ -246,8 +280,7 @@ class ChatScreen:
                     except Exception as exc:
                         console.print(f"[red]Send error:[/red] {exc}")
             finally:
-                # Drain remaining messages then cancel the printer.
-                await self._print_queue.put(None)  # sentinel
+                await self._print_queue.put(None)  # sentinel → printer exits
                 await printer
 
         _print_footer()
