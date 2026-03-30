@@ -84,6 +84,20 @@ def _parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--rooms",
+        metavar="ROOMS",
+        help=(
+            "Comma-separated list of room names to create (host mode only). "
+            "Example: --rooms pepe,juan  Each room admits exactly one peer."
+        ),
+    )
+    parser.add_argument(
+        "--room",
+        metavar="ROOM",
+        default="default",
+        help="Room to join (join mode only, default: 'default')",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging",
@@ -128,16 +142,22 @@ async def _async_main() -> int:
     # ------------------------------------------------------------------ #
     # Step 3 — Determine chat mode from CLI flags or interactive prompt.  #
     # ------------------------------------------------------------------ #
+    rooms: list[str] | None = None
+    room: str = "default"
+
     if args.host is not None:
         mode = "host"
         port = args.host
         uri = None
+        if args.rooms:
+            rooms = [r.strip() for r in args.rooms.split(",") if r.strip()]
     elif args.join is not None:
         mode = "join"
         port = DEFAULT_PORT
         uri = args.join
+        room = args.room or "default"
     else:
-        mode, port, uri = await _prompt_mode()
+        mode, port, uri, rooms, room = await _prompt_mode()
 
     # ------------------------------------------------------------------ #
     # Step 4 — Launch the chat screen.                                    #
@@ -150,6 +170,8 @@ async def _async_main() -> int:
             passphrase=passphrase,
             port=port,
             uri=uri,
+            rooms=rooms,
+            room=room,
         )
     except KeyboardInterrupt:
         pass
@@ -187,7 +209,7 @@ def _validate_passphrase(armored_private: str, passphrase: str) -> bool:
         return False
 
 
-async def _prompt_mode() -> tuple[str, int, str | None]:
+async def _prompt_mode() -> tuple[str, int, str | None, list[str] | None, str]:
     """Interactively ask whether to host or join."""
     session: PromptSession[str] = PromptSession(style=_STYLE)
 
@@ -207,13 +229,27 @@ async def _prompt_mode() -> tuple[str, int, str | None]:
                 HTML(f"<prompt>Port [{DEFAULT_PORT}]: </prompt>"),
             )
             port = int(port_str.strip()) if port_str.strip().isdigit() else DEFAULT_PORT
-            return "host", port, None
+
+            rooms_str: str = await session.prompt_async(
+                HTML("<prompt>Rooms (comma-separated, blank for single): </prompt>"),
+            )
+            rooms_str = rooms_str.strip()
+            rooms: list[str] | None = (
+                [r.strip() for r in rooms_str.split(",") if r.strip()]
+                if rooms_str
+                else None
+            )
+            return "host", port, None, rooms, "default"
 
         if choice in ("j", "join"):
             uri: str = await session.prompt_async(
                 HTML("<prompt>Server URI (ws://host:port): </prompt>"),
             )
-            return "join", DEFAULT_PORT, uri.strip()
+            room_str: str = await session.prompt_async(
+                HTML("<prompt>Room [default]: </prompt>"),
+            )
+            room = room_str.strip() or "default"
+            return "join", DEFAULT_PORT, uri.strip(), None, room
 
         console.print("[red]Please enter 'h' or 'j'.[/red]")
 
