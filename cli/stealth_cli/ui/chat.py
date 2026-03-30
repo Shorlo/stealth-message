@@ -294,58 +294,7 @@ class ChatScreen:
 
     async def run_join(self, *, uri: str, room_id: str = "default") -> None:
         """Connect to a server and enter the chat loop."""
-        client = StealthClient(
-            self._alias,
-            self._armored_private,
-            self._passphrase,
-        )
-
-        async def on_message(plaintext: str, sender: str | None) -> None:
-            state = self._room_states.get(room_id)
-            peer_alias = sender or (state.peer_alias if state else None) or "peer"
-            await self._enqueue_incoming(peer_alias, plaintext, room_id)
-
-        async def on_disconnected() -> None:
-            await self._print_queue.put(
-                Text.assemble(("  ✗ ", "bold red"), ("Connection closed by server", "dim"))
-            )
-            self._stop_event.set()
-
-        async def on_pending() -> None:
-            await self._print_queue.put(
-                Text.from_markup(
-                    f"[bold yellow]  ⏳ Waiting for host to approve your entry"
-                    f" into room [bold cyan]{room_id}[/bold cyan]…[/bold yellow]"
-                )
-            )
-
-        async def on_approved() -> None:
-            await self._print_queue.put(
-                Text.from_markup(
-                    f"[bold green]  ✓ Host approved your entry into room "
-                    f"[bold cyan]{room_id}[/bold cyan].[/bold green]"
-                )
-            )
-
-        async def on_move(target_room: str) -> None:
-            await self._print_queue.put(
-                Text.from_markup(
-                    f"[bold cyan]  ↪ Host is moving you to room "
-                    f"[bold]{target_room}[/bold]…[/bold cyan]"
-                )
-            )
-            # Switch to the new room automatically.
-            await self._switch_join_room(target_room)
-
-        async def on_roomlist(group_rooms: list[str]) -> None:
-            self._update_known_groups(group_rooms)
-
-        client.on_message = on_message
-        client.on_disconnected = on_disconnected
-        client.on_pending = on_pending
-        client.on_approved = on_approved
-        client.on_move = on_move
-        client.on_roomlist = on_roomlist
+        client = self._make_join_client(room_id)
 
         _print_header()
         console.print(f"[cyan]Connecting to[/cyan] [bold]{uri}[/bold]")
@@ -433,185 +382,11 @@ class ChatScreen:
                     if not text:
                         continue
 
-                    if text.lower() in ("/quit", "/exit", "/q"):
+                    cmd_result = await self._dispatch_command(text)
+                    if cmd_result is True:
                         break
-
-                    if text.lower() == "/fp":
-                        state = self._room_states.get(self._active_room)
-                        _print_fingerprint(
-                            state.peer_alias if state else None,
-                            state.peer_fingerprint if state else None,
-                        )
+                    if cmd_result is False:
                         continue
-
-                    if text.lower() == "/help":
-                        _print_help(
-                            multi_room=self._multi_room,
-                            is_host=self._server is not None,
-                            is_join=self._join_uri is not None,
-                        )
-                        continue
-
-                    if text.lower() == "/rooms":
-                        _print_rooms(self._room_states, self._active_room)
-                        continue
-
-                    # /new <room> — host creates a new room at runtime
-                    if self._server is not None and (
-                        text.lower().startswith("/new ")
-                    ):
-                        parts = text.split(None, 1)
-                        new_room = parts[1].strip() if len(parts) > 1 else ""
-                        if not new_room:
-                            console.print("[red]Usage:[/red] /new <room-name>")
-                        elif new_room in self._room_states:
-                            console.print(
-                                f"[yellow]Room '{new_room}' already exists.[/yellow]"
-                            )
-                        else:
-                            self._server.add_room(new_room)
-                            self._room_states[new_room] = RoomState(room_id=new_room)
-                            self._room_ids.append(new_room)
-
-                            def _make_send_new(rid: str) -> Callable[[str], object]:
-                                async def _send(t: str) -> None:
-                                    await self._server.send_to_room(rid, t)  # type: ignore[union-attr]
-                                return _send
-
-                            self._send_fns[new_room] = _make_send_new(new_room)
-                            if not self._multi_room:
-                                self._multi_room = True
-                            console.print(
-                                f"[green]✓[/green] Room [bold]{new_room}[/bold] created. "
-                                f"Use [bold]/switch {new_room}[/bold] to activate it."
-                            )
-                        continue
-
-                    if (
-                        text.lower().startswith("/switch ")
-                        or text.lower().startswith("/s ")
-                    ):
-                        parts = text.split(None, 1)
-                        target = parts[1].strip() if len(parts) > 1 else ""
-
-                        if self._join_uri is not None:
-                            # Join mode: reconnect to the new room.
-                            await self._switch_join_room(target)
-                        else:
-                            # Host mode: just change the active room pointer.
-                            if target in self._room_states:
-                                self._active_room = target
-                                state = self._room_states[target]
-                                status = (
-                                    f"[bold magenta]{state.peer_alias}[/bold magenta] connected"
-                                    if state.connected
-                                    else "[dim]no peer yet[/dim]"
-                                )
-                                console.print(
-                                    f"[cyan]Active room:[/cyan] [bold]{target}[/bold]  {status}"
-                                )
-                            else:
-                                console.print(
-                                    f"[red]Room not found:[/red] {target!r}  "
-                                    f"(available: {', '.join(self._room_states)})"
-                                )
-                        continue
-
-                    # Host-only commands (/allow, /deny, /group, /move)
-                    if self._server is not None:
-                        low = text.lower()
-
-                        if low.startswith("/allow "):
-                            alias = text.split(None, 1)[1].strip()
-                            try:
-                                self._server.approve_join(alias)
-                                console.print(
-                                    f"[green]✓[/green] Join approved for [bold magenta]{alias}[/bold magenta]"
-                                )
-                            except ValueError as exc:
-                                console.print(f"[red]{exc}[/red]")
-                            continue
-
-                        if low.startswith("/deny "):
-                            alias = text.split(None, 1)[1].strip()
-                            try:
-                                self._server.deny_join(alias)
-                                console.print(
-                                    f"[red]✗[/red] Join denied for [bold magenta]{alias}[/bold magenta]"
-                                )
-                            except ValueError as exc:
-                                console.print(f"[red]{exc}[/red]")
-                            continue
-
-                        if low.startswith("/group "):
-                            room_name = text.split(None, 1)[1].strip()
-                            if not room_name:
-                                console.print("[red]Usage:[/red] /group <room-name>")
-                            else:
-                                self._server.make_group_room(room_name)
-                                if room_name not in self._room_states:
-                                    self._room_states[room_name] = RoomState(
-                                        room_id=room_name, is_group=True
-                                    )
-                                    self._room_ids.append(room_name)
-
-                                    def _make_send_g(rid: str) -> Callable[[str], object]:
-                                        async def _s(t: str) -> None:
-                                            await self._server.send_to_room(rid, t)  # type: ignore[union-attr]
-                                        return _s
-
-                                    self._send_fns[room_name] = _make_send_g(room_name)
-                                else:
-                                    self._room_states[room_name].is_group = True
-                                if not self._multi_room:
-                                    self._multi_room = True
-                                console.print(
-                                    f"[green]✓[/green] [bold]{room_name}[/bold] is now a group room. "
-                                    f"Use [bold]/move <alias> {room_name}[/bold] to invite peers."
-                                )
-                            continue
-
-                        if low.startswith("/move "):
-                            parts = text.split(None, 2)
-                            if len(parts) < 3:
-                                console.print("[red]Usage:[/red] /move <alias> <room>")
-                            else:
-                                m_alias, m_room = parts[1].strip(), parts[2].strip()
-                                try:
-                                    await self._server.move_peer(m_alias, m_room)
-                                    # Ensure UI knows about the target room.
-                                    if m_room not in self._room_states:
-                                        self._room_states[m_room] = RoomState(room_id=m_room, is_group=True)
-                                        self._room_ids.append(m_room)
-
-                                        def _make_send_m(rid: str) -> Callable[[str], object]:
-                                            async def _s(t: str) -> None:
-                                                await self._server.send_to_room(rid, t)  # type: ignore[union-attr]
-                                            return _s
-
-                                        self._send_fns[m_room] = _make_send_m(m_room)
-                                        if not self._multi_room:
-                                            self._multi_room = True
-                                    console.print(
-                                        f"[cyan]↪[/cyan] Asking [bold magenta]{m_alias}[/bold magenta]"
-                                        f" to move to room [bold]{m_room}[/bold]…"
-                                    )
-                                except ValueError as exc:
-                                    console.print(f"[red]{exc}[/red]")
-                            continue
-
-                        if low == "/pending":
-                            reqs = self._server.pending_requests
-                            if not reqs:
-                                console.print("[dim]No pending join requests.[/dim]")
-                            else:
-                                for a, fp, r in reqs:
-                                    console.print(
-                                        f"  [bold magenta]{a}[/bold magenta]"
-                                        f" → room [bold cyan]{r}[/bold cyan]"
-                                        f"  FP: [yellow]{fp}[/yellow]"
-                                    )
-                            continue
 
                     # Send to the active room.
                     send_fn = self._send_fns.get(self._active_room)
@@ -687,54 +462,7 @@ class ChatScreen:
         self._send_fns.pop(self._active_room, None)
 
         # Try to connect to the new room.
-        new_client = StealthClient(
-            self._alias, self._armored_private, self._passphrase
-        )
-
-        async def on_message(plaintext: str, sender: str | None) -> None:
-            state = self._room_states.get(target)
-            peer_alias = sender or (state.peer_alias if state else None) or "peer"
-            await self._enqueue_incoming(peer_alias, plaintext, target)
-
-        async def on_disconnected() -> None:
-            await self._print_queue.put(
-                Text.assemble(("  ✗ ", "bold red"), ("Connection closed by server", "dim"))
-            )
-            self._stop_event.set()
-
-        async def on_pending() -> None:
-            await self._print_queue.put(
-                Text.from_markup(
-                    f"[bold yellow]  ⏳ Waiting for host approval to enter "
-                    f"[bold cyan]{target}[/bold cyan]…[/bold yellow]"
-                )
-            )
-
-        async def on_approved() -> None:
-            await self._print_queue.put(
-                Text.from_markup(
-                    f"[bold green]  ✓ Approved! You are now in "
-                    f"[bold cyan]{target}[/bold cyan].[/bold green]"
-                )
-            )
-
-        async def on_move(next_room: str) -> None:
-            await self._print_queue.put(
-                Text.from_markup(
-                    f"[bold cyan]  ↪ Host is moving you to room [bold]{next_room}[/bold]…[/bold cyan]"
-                )
-            )
-            await self._switch_join_room(next_room)
-
-        async def on_roomlist_switch(group_rooms: list[str]) -> None:
-            self._update_known_groups(group_rooms)
-
-        new_client.on_message = on_message
-        new_client.on_disconnected = on_disconnected
-        new_client.on_pending = on_pending
-        new_client.on_approved = on_approved
-        new_client.on_move = on_move
-        new_client.on_roomlist = on_roomlist_switch
+        new_client = self._make_join_client(target)
 
         console.print(f"[cyan]Switching to room[/cyan] [bold]{target}[/bold]…")
 
@@ -792,27 +520,7 @@ class ChatScreen:
     async def _reconnect_to_room(self, room_id: str) -> None:
         """Re-establish connection to ``room_id`` after a failed switch."""
         assert self._join_uri is not None
-        new_client = StealthClient(
-            self._alias, self._armored_private, self._passphrase
-        )
-
-        async def on_message(plaintext: str, sender: str | None) -> None:
-            state = self._room_states.get(room_id)
-            peer_alias = sender or (state.peer_alias if state else None) or "peer"
-            await self._enqueue_incoming(peer_alias, plaintext, room_id)
-
-        async def on_disconnected() -> None:
-            await self._print_queue.put(
-                Text.assemble(("  ✗ ", "bold red"), ("Connection closed by server", "dim"))
-            )
-            self._stop_event.set()
-
-        async def on_roomlist_reconnect(group_rooms: list[str]) -> None:
-            self._update_known_groups(group_rooms)
-
-        new_client.on_message = on_message
-        new_client.on_disconnected = on_disconnected
-        new_client.on_roomlist = on_roomlist_reconnect
+        new_client = self._make_join_client(room_id)
 
         try:
             await new_client.connect(self._join_uri, room_id=room_id)
@@ -833,6 +541,228 @@ class ChatScreen:
     # ------------------------------------------------------------------ #
     # Helpers                                                              #
     # ------------------------------------------------------------------ #
+
+    async def _dispatch_command(self, text: str) -> bool | None:
+        """Handle a slash command from the input loop.
+
+        Returns:
+            True  → quit was requested; caller should break the input loop.
+            False → command was handled; caller should continue the loop.
+            None  → not a recognized command; caller should proceed to send.
+        """
+        low = text.lower()
+
+        if low in ("/quit", "/exit", "/q"):
+            return True
+
+        if low == "/fp":
+            state = self._room_states.get(self._active_room)
+            _print_fingerprint(
+                state.peer_alias if state else None,
+                state.peer_fingerprint if state else None,
+            )
+            return False
+
+        if low == "/help":
+            _print_help(
+                multi_room=self._multi_room,
+                is_host=self._server is not None,
+                is_join=self._join_uri is not None,
+            )
+            return False
+
+        if low == "/rooms":
+            _print_rooms(self._room_states, self._active_room)
+            return False
+
+        if self._server is not None and low.startswith("/new "):
+            parts = text.split(None, 1)
+            new_room = parts[1].strip() if len(parts) > 1 else ""
+            if not new_room:
+                console.print("[red]Usage:[/red] /new <room-name>")
+            elif new_room in self._room_states:
+                console.print(f"[yellow]Room '{new_room}' already exists.[/yellow]")
+            else:
+                self._server.add_room(new_room)
+                self._room_states[new_room] = RoomState(room_id=new_room)
+                self._room_ids.append(new_room)
+                self._send_fns[new_room] = self._make_send_fn(new_room)
+                if not self._multi_room:
+                    self._multi_room = True
+                console.print(
+                    f"[green]✓[/green] Room [bold]{new_room}[/bold] created. "
+                    f"Use [bold]/switch {new_room}[/bold] to activate it."
+                )
+            return False
+
+        if low.startswith("/switch ") or low.startswith("/s "):
+            parts = text.split(None, 1)
+            target = parts[1].strip() if len(parts) > 1 else ""
+            if self._join_uri is not None:
+                await self._switch_join_room(target)
+            else:
+                if target in self._room_states:
+                    self._active_room = target
+                    state = self._room_states[target]
+                    status = (
+                        f"[bold magenta]{state.peer_alias}[/bold magenta] connected"
+                        if state.connected
+                        else "[dim]no peer yet[/dim]"
+                    )
+                    console.print(
+                        f"[cyan]Active room:[/cyan] [bold]{target}[/bold]  {status}"
+                    )
+                else:
+                    console.print(
+                        f"[red]Room not found:[/red] {target!r}  "
+                        f"(available: {', '.join(self._room_states)})"
+                    )
+            return False
+
+        if self._server is not None:
+            if low.startswith("/allow "):
+                alias = text.split(None, 1)[1].strip()
+                try:
+                    self._server.approve_join(alias)
+                    console.print(
+                        f"[green]✓[/green] Join approved for [bold magenta]{alias}[/bold magenta]"
+                    )
+                except ValueError as exc:
+                    console.print(f"[red]{exc}[/red]")
+                return False
+
+            if low.startswith("/deny "):
+                alias = text.split(None, 1)[1].strip()
+                try:
+                    self._server.deny_join(alias)
+                    console.print(
+                        f"[red]✗[/red] Join denied for [bold magenta]{alias}[/bold magenta]"
+                    )
+                except ValueError as exc:
+                    console.print(f"[red]{exc}[/red]")
+                return False
+
+            if low.startswith("/group "):
+                room_name = text.split(None, 1)[1].strip()
+                if not room_name:
+                    console.print("[red]Usage:[/red] /group <room-name>")
+                else:
+                    self._server.make_group_room(room_name)
+                    if room_name not in self._room_states:
+                        self._room_states[room_name] = RoomState(
+                            room_id=room_name, is_group=True
+                        )
+                        self._room_ids.append(room_name)
+                        self._send_fns[room_name] = self._make_send_fn(room_name)
+                    else:
+                        self._room_states[room_name].is_group = True
+                    if not self._multi_room:
+                        self._multi_room = True
+                    console.print(
+                        f"[green]✓[/green] [bold]{room_name}[/bold] is now a group room. "
+                        f"Use [bold]/move <alias> {room_name}[/bold] to invite peers."
+                    )
+                return False
+
+            if low.startswith("/move "):
+                parts = text.split(None, 2)
+                if len(parts) < 3:
+                    console.print("[red]Usage:[/red] /move <alias> <room>")
+                else:
+                    m_alias, m_room = parts[1].strip(), parts[2].strip()
+                    try:
+                        await self._server.move_peer(m_alias, m_room)
+                        if m_room not in self._room_states:
+                            self._room_states[m_room] = RoomState(
+                                room_id=m_room, is_group=True
+                            )
+                            self._room_ids.append(m_room)
+                            self._send_fns[m_room] = self._make_send_fn(m_room)
+                            if not self._multi_room:
+                                self._multi_room = True
+                        console.print(
+                            f"[cyan]↪[/cyan] Asking [bold magenta]{m_alias}[/bold magenta]"
+                            f" to move to room [bold]{m_room}[/bold]…"
+                        )
+                    except ValueError as exc:
+                        console.print(f"[red]{exc}[/red]")
+                return False
+
+            if low == "/pending":
+                reqs = self._server.pending_requests
+                if not reqs:
+                    console.print("[dim]No pending join requests.[/dim]")
+                else:
+                    for a, fp, r in reqs:
+                        console.print(
+                            f"  [bold magenta]{a}[/bold magenta]"
+                            f" → room [bold cyan]{r}[/bold cyan]"
+                            f"  FP: [yellow]{fp}[/yellow]"
+                        )
+                return False
+
+        return None  # not a recognized command — fall through to send
+
+    def _make_join_client(self, room_id: str) -> StealthClient:
+        """Create a StealthClient with all callbacks wired for ``room_id``.
+
+        All three join paths (run_join, _switch_join_room, _reconnect_to_room)
+        use this factory so the callback logic lives in exactly one place.
+        """
+        client = StealthClient(self._alias, self._armored_private, self._passphrase)
+
+        async def on_message(plaintext: str, sender: str | None) -> None:
+            state = self._room_states.get(room_id)
+            peer_alias = sender or (state.peer_alias if state else None) or "peer"
+            await self._enqueue_incoming(peer_alias, plaintext, room_id)
+
+        async def on_disconnected() -> None:
+            await self._print_queue.put(
+                Text.assemble(("  ✗ ", "bold red"), ("Connection closed by server", "dim"))
+            )
+            self._stop_event.set()
+
+        async def on_pending() -> None:
+            await self._print_queue.put(
+                Text.from_markup(
+                    f"[bold yellow]  ⏳ Waiting for host to approve your entry"
+                    f" into room [bold cyan]{room_id}[/bold cyan]…[/bold yellow]"
+                )
+            )
+
+        async def on_approved() -> None:
+            await self._print_queue.put(
+                Text.from_markup(
+                    f"[bold green]  ✓ Host approved your entry into room "
+                    f"[bold cyan]{room_id}[/bold cyan].[/bold green]"
+                )
+            )
+
+        async def on_move(target_room: str) -> None:
+            await self._print_queue.put(
+                Text.from_markup(
+                    f"[bold cyan]  ↪ Host is moving you to room "
+                    f"[bold]{target_room}[/bold]…[/bold cyan]"
+                )
+            )
+            await self._switch_join_room(target_room)
+
+        async def on_roomlist(group_rooms: list[str]) -> None:
+            self._update_known_groups(group_rooms)
+
+        client.on_message = on_message
+        client.on_disconnected = on_disconnected
+        client.on_pending = on_pending
+        client.on_approved = on_approved
+        client.on_move = on_move
+        client.on_roomlist = on_roomlist
+        return client
+
+    def _make_send_fn(self, room_id: str) -> Callable[[str], object]:
+        """Return an async callable that sends a message to ``room_id`` via the server."""
+        async def _send(text: str) -> None:
+            await self._server.send_to_room(room_id, text)  # type: ignore[union-attr]
+        return _send
 
     async def _enqueue_incoming(
         self, peer_alias: str, plaintext: str, room_id: Optional[str] = None

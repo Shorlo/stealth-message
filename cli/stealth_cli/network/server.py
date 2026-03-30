@@ -199,7 +199,7 @@ class StealthServer:
         if self._allowed_rooms is not None:
             self._allowed_rooms.add(room_id)
         # Notify all connected peers of the updated group room list.
-        asyncio.get_event_loop().create_task(self._broadcast_roomlist())
+        asyncio.get_running_loop().create_task(self._broadcast_roomlist())
 
     def is_group_room(self, room_id: str) -> bool:
         return room_id in self._group_rooms
