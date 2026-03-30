@@ -107,7 +107,7 @@ async def client(
 
     cli = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
 
-    async def on_msg(txt: str) -> None:
+    async def on_msg(txt: str, sender: str | None) -> None:
         await msgs.put(txt)
 
     cli.on_message = on_msg
@@ -443,10 +443,10 @@ async def test_different_rooms_are_independent(
     cli1 = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
     cli2 = StealthClient("Test Client 2", client2_keys[0], PASSPHRASE)
 
-    async def on_msg1(txt: str) -> None:
+    async def on_msg1(txt: str, sender: str | None) -> None:
         await msgs_cli1.put(txt)
 
-    async def on_msg2(txt: str) -> None:
+    async def on_msg2(txt: str, sender: str | None) -> None:
         await msgs_cli2.put(txt)
 
     cli1.on_message = on_msg1
@@ -694,10 +694,10 @@ async def test_group_room_messages_forwarded_to_all_peers(
     cli1 = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
     cli2 = StealthClient("Test Client 2", client2_keys[0], PASSPHRASE)
 
-    async def on_msg1(txt: str) -> None:
+    async def on_msg1(txt: str, sender: str | None) -> None:
         await msgs_cli1.put(txt)
 
-    async def on_msg2(txt: str) -> None:
+    async def on_msg2(txt: str, sender: str | None) -> None:
         await msgs_cli2.put(txt)
 
     cli1.on_message = on_msg1
