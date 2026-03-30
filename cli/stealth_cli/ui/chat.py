@@ -599,20 +599,17 @@ def _print_rooms(
     console.print()
     for room_id, state in room_states.items():
         marker = "▶" if room_id == active_room else " "
+        room_label = f"[bold]{room_id}[/bold]" if room_id == active_room else room_id
         if state.connected:
-            status = Text.assemble(
-                (f"{marker} ", "bold cyan"),
-                (room_id, "bold" if room_id == active_room else ""),
-                ("  ✓ ", "green"),
-                (state.peer_alias or "", "magenta"),
+            console.print(
+                f"[bold cyan]{marker}[/bold cyan] {room_label}"
+                f"  [green]✓[/green] [magenta]{state.peer_alias or ''}[/magenta]"
             )
         else:
-            status = Text.assemble(
-                (f"{marker} ", "bold cyan"),
-                (room_id, "bold" if room_id == active_room else ""),
-                ("  [dim]waiting for peer…[/dim]", ""),
+            console.print(
+                f"[bold cyan]{marker}[/bold cyan] {room_label}"
+                f"  [dim]waiting for peer…[/dim]"
             )
-        console.print(status)
     console.print()
 
 
