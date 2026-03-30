@@ -327,7 +327,7 @@ python -m stealth_cli --host 9000      # custom port
 ### Alice — host mode (multiple rooms)
 
 ```
-python -m stealth_cli --host --rooms pepe,juan,sala-grupo
+python -m stealth_cli --host --rooms bob,carol,team
 ```
 
 This creates three independent rooms. Peers connect to a specific room by name.
@@ -336,7 +336,7 @@ This creates three independent rooms. Peers connect to a specific room by name.
 
 ```
 python -m stealth_cli --join ws://ALICE_IP:8765
-python -m stealth_cli --join ws://ALICE_IP:8765 --room pepe   # named room
+python -m stealth_cli --join ws://ALICE_IP:8765 --room bob   # named room
 ```
 
 ### Interactive mode (no flags)
@@ -362,20 +362,20 @@ error 4006 (room occupied).
 Group rooms admit **multiple peers** with host approval:
 
 ```
-[Shorlo@room1] /group chat-grupal      # convert a room to group mode
-[Shorlo@room1] /move Pepe chat-grupal  # invite Pepe — pre-approved, no prompt
+[Alice@room1] /group team      # convert a room to group mode
+[Alice@room1] /move Bob team   # invite Bob — pre-approved, no prompt
 ```
 
 When a new peer tries to join a group room that already has someone:
 
 ```
-  ⚠  Join request: Juan wants to enter room chat-grupal
+  ⚠  Join request: Carol wants to enter room team
      FP: XXXX XXXX XXXX ...
-     /allow Juan  or  /deny Juan
+     /allow Carol  or  /deny Carol
 ```
 
-- `/allow Juan` → Juan enters the room
-- `/deny Juan` → Juan is rejected
+- `/allow Carol` → Carol enters the room
+- `/deny Carol` → Carol is rejected
 
 In group rooms, messages sent by any peer are forwarded to **all** other peers
 in that room (peer-to-peer relay through the host).
@@ -507,7 +507,7 @@ Carol's client switches to `team` automatically.
 After connecting, both sides see the peer's alias and fingerprint:
 
 ```
-  ✓ Connected to Shorlo  [room: pepe]
+  ✓ Connected to Alice  [room: bob]
     Fingerprint: F7B3 E55E EA71 1A09 C6C5 0BB7 BA84 DD16 8A77 AA9A
 ```
 
