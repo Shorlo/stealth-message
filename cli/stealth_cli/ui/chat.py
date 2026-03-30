@@ -49,6 +49,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.rule import Rule
+from rich.table import Table
 from rich.text import Text
 
 from stealth_cli.exceptions import ProtocolError
@@ -164,7 +165,7 @@ class ChatScreen:
         self._send_fns: dict[str, Callable[..., object]] = {}
 
         self._stop_event = asyncio.Event()
-        self._print_queue: asyncio.Queue[Optional[Text]] = asyncio.Queue()
+        self._print_queue: asyncio.Queue[object] = asyncio.Queue()
         # Reference to the running server (host mode only) — used by /new command.
         self._server: Optional[StealthServer] = None
         # Join mode: URI and active client — used by /switch command.
@@ -217,15 +218,9 @@ class ChatScreen:
             await self._print_queue.put(
                 Text.from_markup("[dim]  Verify fingerprint out-of-band before trusting.[/dim]")
             )
-            help_text = (
-                "[dim]  /fp[/dim]   fingerprint   [dim]/quit[/dim]  exit"
-                "   [dim]/rooms[/dim]  list rooms"
-                "   [dim]/switch <room>[/dim]  change room"
-                "   [dim]/new <room>[/dim]  create room"
-                "   [dim]/group <room>[/dim]  make group room"
-                "   [dim]/move <alias> <room>[/dim]  move peer"
+            await self._print_queue.put(
+                _build_help_table(multi_room=self._multi_room, is_host=True)
             )
-            await self._print_queue.put(Text.from_markup(help_text))
 
         async def on_message(peer_alias: str, plaintext: str, room_id: str) -> None:
             await self._enqueue_incoming(peer_alias, plaintext, room_id)
@@ -936,20 +931,34 @@ def _print_rooms(
     console.print()
 
 
-def _print_help(*, multi_room: bool = False, is_host: bool = False, is_join: bool = False) -> None:
-    base = "[dim]  /fp[/dim]   fingerprint   [dim]/quit[/dim]  exit"
+def _build_help_table(
+    *, multi_room: bool = False, is_host: bool = False, is_join: bool = False
+) -> Table:
+    t = Table.grid(padding=(0, 2))
+    t.add_column(style="dim cyan", no_wrap=True)
+    t.add_column(style="dim")
+
+    t.add_row("/fp", "Show peer fingerprint")
+    t.add_row("/help", "Show this list")
+    t.add_row("/quit", "Exit")
+
     if multi_room or is_host or is_join:
-        base += "   [dim]/rooms[/dim]  list rooms   [dim]/switch <room>[/dim]  change room"
+        t.add_row("/rooms", "List rooms and status")
+        t.add_row("/switch <room>", "Change active room")
+
     if is_host:
-        base += (
-            "   [dim]/new <room>[/dim]  create room"
-            "   [dim]/group <room>[/dim]  group room"
-            "   [dim]/move <alias> <room>[/dim]  move peer"
-            "   [dim]/allow <alias>[/dim]  approve join"
-            "   [dim]/deny <alias>[/dim]  deny join"
-            "   [dim]/pending[/dim]  pending requests"
-        )
-    console.print(base)
+        t.add_row("/new <room>", "Create a new room")
+        t.add_row("/group <room>", "Convert room to group mode")
+        t.add_row("/move <alias> <room>", "Move peer to another room")
+        t.add_row("/allow <alias>", "Approve a join request")
+        t.add_row("/deny <alias>", "Deny a join request")
+        t.add_row("/pending", "List pending join requests")
+
+    return t
+
+
+def _print_help(*, multi_room: bool = False, is_host: bool = False, is_join: bool = False) -> None:
+    console.print(_build_help_table(multi_room=multi_room, is_host=is_host, is_join=is_join))
 
 
 def _now() -> str:
