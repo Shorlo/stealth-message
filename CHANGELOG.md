@@ -9,6 +9,10 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Fixed
+- `__main__.py`: la URI introducida sin prefijo `ws://` (e.g. `192.168.1.10:8765`) se
+  normaliza automáticamente — aplica tanto al modo interactivo como al flag `--join`
+
 ### Added
 - **Consulta de salas al unirse (modo interactivo)**: tras introducir la URI del servidor,
   se muestra automáticamente la lista de salas disponibles con tipo y estado antes de
