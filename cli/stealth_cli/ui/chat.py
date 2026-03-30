@@ -474,11 +474,6 @@ class ChatScreen:
 
                     try:
                         await send_fn(text)  # type: ignore[arg-type]
-                        _print_outgoing(
-                            self._alias,
-                            text,
-                            self._active_room if self._multi_room else None,
-                        )
                     except Exception as exc:
                         console.print(f"[red]Send error:[/red] {exc}")
             finally:
@@ -560,24 +555,6 @@ def _print_connected_banner(
     console.print(Rule(style="dim"))
     console.print()
 
-
-def _print_outgoing(
-    alias: str, text: str, room_id: Optional[str] = None
-) -> None:
-    parts: list[tuple[str, str]] = [
-        (_now(), "dim"),
-        ("  ", ""),
-    ]
-    if room_id:
-        parts.append((f"[{room_id}]  ", "cyan dim"))
-    parts.extend(
-        [
-            (f"{alias}", "bold green"),
-            (" › ", "dim"),
-            (text, "bright_white"),
-        ]
-    )
-    console.print(Text.assemble(*parts))
 
 
 def _print_fingerprint(
