@@ -439,66 +439,66 @@ No router configuration needed.
 
 ---
 
-## Example: Shorlo hosts, Pepe and Juan join separate 1-on-1 rooms
+## Example: Alice hosts, Bob and Carol join separate 1-on-1 rooms
 
-**Shorlo (host):**
+**Alice (host):**
 ```
-python -m stealth_cli --host --rooms pepe,juan
-```
-
-**Pepe:**
-```
-python -m stealth_cli --join ws://SHORLO_IP:8765 --room pepe
+python -m stealth_cli --host --rooms bob,carol
 ```
 
-**Juan:**
+**Bob:**
 ```
-python -m stealth_cli --join ws://SHORLO_IP:8765 --room juan
+python -m stealth_cli --join ws://ALICE_IP:8765 --room bob
 ```
 
-Shorlo uses `/switch pepe` and `/switch juan` to alternate between conversations.
-Neither Pepe nor Juan can see each other's messages.
+**Carol:**
+```
+python -m stealth_cli --join ws://ALICE_IP:8765 --room carol
+```
+
+Alice uses `/switch bob` and `/switch carol` to alternate between conversations.
+Neither Bob nor Carol can see each other's messages.
 
 ---
 
-## Example: Shorlo hosts a group room with Pepe and Juan
+## Example: Alice hosts a group room with Bob and Carol
 
-**Shorlo (host):**
+**Alice (host):**
 ```
-python -m stealth_cli --host --rooms sala
-[Shorlo@sala] /group sala           # make it a group room
-```
-
-**Pepe:**
-```
-python -m stealth_cli --join ws://SHORLO_IP:8765 --room sala
-  ✓ Connected to Shorlo  [room: sala]
+python -m stealth_cli --host --rooms team
+[Alice@team] /group team            # make it a group room
 ```
 
-**Juan** (joins later):
+**Bob:**
 ```
-python -m stealth_cli --join ws://SHORLO_IP:8765 --room sala
-  ⏳ Waiting for host to approve your entry into room sala…
-```
-
-**Shorlo sees:**
-```
-  ⚠  Join request: Juan wants to enter room sala
-     /allow Juan  or  /deny Juan
-
-[Shorlo@sala] /allow Juan
-✓ Join approved for Juan
+python -m stealth_cli --join ws://ALICE_IP:8765 --room team
+  ✓ Connected to Alice  [room: team]
 ```
 
-Now Shorlo, Pepe and Juan are all in the same room. Any message sent by
+**Carol** (joins later):
+```
+python -m stealth_cli --join ws://ALICE_IP:8765 --room team
+  ⏳ Waiting for host to approve your entry into room team…
+```
+
+**Alice sees:**
+```
+  ⚠  Join request: Carol wants to enter room team
+     /allow Carol  or  /deny Carol
+
+[Alice@team] /allow Carol
+✓ Join approved for Carol
+```
+
+Now Alice, Bob and Carol are all in the same room. Any message sent by
 any of them reaches all the others.
 
-Alternatively, Shorlo can move Juan directly without an approval prompt:
+Alternatively, Alice can move Carol directly without an approval prompt:
 ```
-[Shorlo@pepe] /move Juan sala
-↪ Asking Juan to move to room sala…
+[Alice@bob] /move Carol team
+↪ Asking Carol to move to room team…
 ```
-Juan's client switches to `sala` automatically.
+Carol's client switches to `team` automatically.
 
 ---
 
