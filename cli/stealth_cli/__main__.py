@@ -156,6 +156,8 @@ async def _async_main() -> int:
         mode = "join"
         port = DEFAULT_PORT
         uri = args.join
+        if not uri.startswith("ws://") and not uri.startswith("wss://"):
+            uri = "ws://" + uri
         room = args.room or "default"
     else:
         mode, port, uri, rooms, room = await _prompt_mode()
@@ -291,6 +293,8 @@ async def _prompt_mode() -> tuple[str, int, str | None, list[str] | None, str]:
                 HTML("<prompt>Server URI (ws://host:port): </prompt>"),
             )
             uri = uri.strip()
+            if uri and not uri.startswith("ws://") and not uri.startswith("wss://"):
+                uri = "ws://" + uri
             await _print_room_list(uri)
             room_str: str = await session.prompt_async(
                 HTML("<prompt>Room [default]: </prompt>"),
