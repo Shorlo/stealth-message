@@ -10,6 +10,8 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Changed
+- `ui/chat.py`: `_print_help` reescrita con una tabla Rich (`Table.grid`) en lugar de
+  texto inline — los comandos se muestran en dos columnas alineadas (comando + descripción)
 - `__main__.py`: manual de usuario — sustituidos nombres de ejemplo (Shorlo/Pepe/Juan)
   por nombres genéricos (Alice/Bob/Carol) y sala `sala` por `team`
 
