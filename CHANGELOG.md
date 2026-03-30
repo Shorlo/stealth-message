@@ -43,6 +43,8 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 - `network/server.py`: `_allowed_rooms` cambiado de `frozenset` a `set` para mutabilidad
 - `ui/chat.py`: `/rooms` imprimía `[dim]waiting for peer…[/dim]` literal — `_print_rooms`
   usaba `Text.assemble()` que no parsea markup; reescrito con `console.print()` y markup
+- `__main__.py`: manual de usuario actualizado con salas, salas de grupo, ejemplos con
+  3 participantes, tabla de comandos host vs. todos, modelo de seguridad ampliado
 - `ui/chat.py`: la línea raw del prompt se borra con escape ANSI `\x1b[1A\x1b[2K`
   antes de imprimir el mensaje propio formateado con hora y sala; restaurado `_print_outgoing`
 
