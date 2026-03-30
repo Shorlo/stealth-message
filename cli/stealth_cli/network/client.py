@@ -97,6 +97,9 @@ class StealthClient:
         # Called when the host asks this client to move to a different room.
         # Signature: async def cb(room_id: str) -> None
         self.on_move: Callable[[str], Awaitable[None]] | None = None
+        # Called when the server sends the list of discoverable group rooms.
+        # Signature: async def cb(group_rooms: list[str]) -> None
+        self.on_roomlist: Callable[[list[str]], Awaitable[None]] | None = None
 
     # ------------------------------------------------------------------ #
     # Peer identity (available after connect)                              #
@@ -416,6 +419,10 @@ class StealthClient:
             target_room = str(msg.get("room") or "")
             if target_room and self.on_move:
                 await self.on_move(target_room)
+        elif msg_type == "roomlist":
+            groups = msg.get("groups")
+            if isinstance(groups, list) and self.on_roomlist:
+                await self.on_roomlist([str(r) for r in groups])
         elif msg_type == "error":
             logger.warning(
                 "Error from server: code=%s reason=%s",

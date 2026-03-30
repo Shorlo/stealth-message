@@ -198,6 +198,8 @@ class StealthServer:
         self._group_rooms.add(room_id)
         if self._allowed_rooms is not None:
             self._allowed_rooms.add(room_id)
+        # Notify all connected peers of the updated group room list.
+        asyncio.get_event_loop().create_task(self._broadcast_roomlist())
 
     def is_group_room(self, room_id: str) -> bool:
         return room_id in self._group_rooms
@@ -327,6 +329,9 @@ class StealthServer:
 
         self._rooms.setdefault(peer.room_id, []).append(peer)
         logger.info("Peer connected: %s  fp=%s  room=%s", peer.alias, peer.fingerprint, peer.room_id)
+
+        # Send the current group room list to the newly connected peer.
+        await self._send_roomlist_to(peer)
 
         if self.on_peer_connected:
             await self.on_peer_connected(peer.alias, peer.fingerprint, peer.room_id)
@@ -523,6 +528,24 @@ class StealthServer:
     # ------------------------------------------------------------------ #
     # Outbound helpers                                                     #
     # ------------------------------------------------------------------ #
+
+    async def _send_roomlist_to(self, peer: PeerSession) -> None:
+        """Send the current group room list to a single peer."""
+        frame = json.dumps({"type": "roomlist", "groups": sorted(self._group_rooms)})
+        try:
+            await peer.ws.send(frame)
+        except websockets.exceptions.ConnectionClosed:
+            pass
+
+    async def _broadcast_roomlist(self) -> None:
+        """Send the updated group room list to all connected peers."""
+        frame = json.dumps({"type": "roomlist", "groups": sorted(self._group_rooms)})
+        for peers in list(self._rooms.values()):
+            for peer in list(peers):
+                try:
+                    await peer.ws.send(frame)
+                except websockets.exceptions.ConnectionClosed:
+                    pass
 
     async def _send_message_to(
         self, peer: PeerSession, plaintext: str, sender: str | None = None
