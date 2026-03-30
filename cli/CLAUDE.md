@@ -1,103 +1,107 @@
-# stealth-message/cli — CLAUDE.md
+# cli/CLAUDE.md — stealth-message CLI (reference implementation)
 
-Interfaz de terminal para stealth-message. Compatible con WSL (Windows), Linux y macOS.
-Lee también el CLAUDE.md raíz del monorepo antes de trabajar en este subproyecto.
+Python terminal client. Fully functional. All other platform clients must implement
+the same protocol (`docs/protocol.md`) and replicate the same crypto behaviour.
+
+---
 
 ## Stack
 
-- **Lenguaje**: Python 3.10+
-- **PGP**: `pgpy` — puro Python, sin dependencia de GnuPG instalado en el sistema
-- **Red**: `asyncio` + `websockets`
-- **UI terminal**: `rich` (renderizado) + `prompt_toolkit` (input interactivo)
-- **Config y rutas**: `platformdirs` — rutas correctas en WSL, Linux y macOS
-- **Empaquetado**: `pip install -e .` para desarrollo; `PyInstaller` para binario standalone
+| Concern      | Library / tool                          |
+|--------------|-----------------------------------------|
+| Python       | 3.10+ (tested on 3.12)                  |
+| PGP          | `pgpy` — pure Python, no system GnuPG  |
+| WebSocket    | `websockets` 16 (asyncio API)           |
+| Terminal UI  | `rich` (output) + `prompt_toolkit` (input) |
+| Config paths | `platformdirs`                          |
+| Packaging    | `pip install -e .` / PyInstaller binary |
 
-## Estructura
+---
+
+## Structure
 
 ```
 cli/
-├── CLAUDE.md
 ├── pyproject.toml
-├── requirements-dev.txt
 ├── stealth_cli/
-│   ├── __init__.py
-│   ├── __main__.py          ← entry point: python -m stealth_cli
-│   ├── exceptions.py        ← excepciones propias
-│   ├── config.py            ← rutas platformdirs, carga/guarda settings
+│   ├── __main__.py      entry point; arg parsing; interactive mode wizard;
+│   │                    _print_room_list() fetches rooms before join prompt;
+│   │                    ws:// auto-prefixed if missing
+│   ├── config.py        platformdirs paths; save/load keypair (privkey 0600);
+│   │                    is_first_use(); passphrase NEVER written to disk
+│   ├── exceptions.py    StealthError, SignatureError, ProtocolError(msg, code)
 │   ├── crypto/
-│   │   ├── __init__.py
-│   │   ├── keys.py          ← generar, importar, exportar claves PGP
-│   │   └── messages.py      ← cifrar y descifrar según protocol.md §2.1
+│   │   ├── keys.py      generate_keypair(alias, passphrase) → (armored_pub, armored_priv)
+│   │   │                load_private_key(armored, passphrase) → PGPKey (locked)
+│   │   │                get_fingerprint(armored_pub) → "XXXX XXXX …" (groups of 4)
+│   │   └── messages.py  encrypt(plaintext, recipient_pub, sender_priv) → str
+│   │                    decrypt(payload, recipient_priv, sender_pub) → str
+│   │                    raises SignatureError if sig invalid
 │   ├── network/
-│   │   ├── __init__.py
-│   │   ├── server.py        ← servidor WebSocket modo host (protocol.md §1–§4)
-│   │   └── client.py        ← cliente WebSocket modo join
+│   │   ├── server.py    StealthServer — WebSocket host; room management;
+│   │   │                handles listrooms before handshake; sends roomlist after connect
+│   │   └── client.py    StealthClient — WebSocket joiner; approval loop for group rooms;
+│   │                    query_rooms(uri) — standalone async fn, no auth required
 │   └── ui/
-│       ├── __init__.py
-│       ├── chat.py          ← pantalla de chat en tiempo real (rich + prompt_toolkit)
-│       └── setup.py         ← wizard de primer uso: generar clave, elegir alias
+│       ├── chat.py      ChatScreen; _printer_task; _switch_join_room; _update_known_groups;
+│       │                all chat commands; Rich table help; ANSI erase before outgoing msg
+│       └── setup.py     first-use wizard: alias, passphrase, RSA-4096 keygen, show fp
 └── tests/
-    ├── test_crypto.py
-    └── test_network.py
+    ├── test_crypto.py   (21 tests)
+    └── test_network.py  (43 tests)   — 64 total, all must pass
 ```
 
-## Comandos de desarrollo
+---
+
+## Key patterns
+
+**Crypto layer:**
+- All crypto functions accept/return `str` (ASCII-armored PGP or plaintext). No `bytes` in public API.
+- Private key is always locked on disk. Unlock only per-operation: `with privkey.unlock(passphrase): ...`
+- Sign-then-encrypt on send. Decrypt-then-verify on receive. Discard on `SignatureError`.
+
+**Network layer:**
+- `StealthServer` reads first WebSocket frame manually to detect `listrooms` vs `hello`.
+- `_do_handshake(ws, first_msg=...)` accepts the already-parsed first message to avoid double-read.
+- Group room join: server sends `pending` after `hello`; client detects it via 0.5 s peek in `_handshake()`; `connect()` blocks in `_approval_loop()` until `approved` or `error`.
+- `on_message` callback signature: `async def cb(plaintext: str, sender: str | None) -> None` — `sender` is set only for group room relay messages.
+- `on_roomlist` callback: `async def cb(group_rooms: list[str]) -> None`
+- Before disconnecting a client during `/switch` or `/move`, null out `on_disconnected` first to prevent `_stop_event` from firing.
+
+**UI layer:**
+- `_print_queue: asyncio.Queue[object]` — accepts `Text` or `Table` (Rich renderables).
+- `_printer_task` runs as background asyncio task; sentinel `None` signals exit.
+- `asyncio.wait({prompt_task, stop_task}, FIRST_COMPLETED)` — prompt never interrupted by incoming messages.
+- ANSI erase before printing outgoing: `sys.stdout.write("\x1b[1A\x1b[2K\r")`.
+- `_print_help()` uses `Table.grid` — never inline markup strings.
+- Layer rule: `crypto/` and `network/` never import from `ui/`.
+
+---
+
+## Commands
 
 ```bash
 cd cli
-python -m venv .venv
-source .venv/bin/activate      # Linux / macOS / WSL
-
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Ejecutar
-python -m stealth_cli
+python -m stealth_cli                         # interactive
+python -m stealth_cli --host [PORT]
+python -m stealth_cli --host --rooms a,b,c
+python -m stealth_cli --join HOST:PORT [--room NAME]
+python -m stealth_cli --manual
 
-# Tests
-pytest tests/ -v
-
-# Lint y formato
-ruff check .
-black .
-mypy stealth_cli/
+pytest tests/ -v                              # must all pass before commit
+ruff check . && black . && mypy stealth_cli/
 ```
 
-## Convenciones de código
+---
 
-- **PEP 8**. Formato con `black`. Lint con `ruff`. Tipos con `mypy`.
-- **Type hints** obligatorios en todas las funciones públicas.
-- **Docstrings** estilo Google en módulos, clases y funciones públicas.
-- **`asyncio`** para toda operación de red. Nunca blocking I/O en el event loop.
-- **Excepciones propias** en `exceptions.py`. Nunca `except: pass`.
-- **`logging`** estándar. Nunca `print()` en código de producción.
-- **Separación de capas**: `crypto/` y `network/` no importan nada de `ui/`.
-  Las dependencias fluyen hacia arriba, nunca hacia abajo.
+## Constraints
 
-## Implementación del protocolo
-
-Este subproyecto implementa `docs/protocol.md` completo.
-Referencias directas por sección:
-
-- Handshake → `network/server.py` y `network/client.py` (§1)
-- Cifrado de mensaje → `crypto/messages.py` (§2.1)
-- Ping/pong y bye → `network/server.py` y `network/client.py` (§3)
-- Códigos de error → `exceptions.py` y módulos de network (§4)
-
-## Seguridad
-
-- Las claves privadas se guardan en `platformdirs.user_config_dir("stealth-message")/keys/`
-  con permisos `0600`.
-- La passphrase se pide en cada arranque via `prompt_toolkit` con `is_password=True`.
-  Nunca se persiste en disco.
-- Al mostrar el fingerprint de la clave del interlocutor, formatearlo en grupos de 4 chars
-  para facilitar la verificación visual fuera de banda.
-
-## Notas para Claude Code
-
-- Empezar siempre por los tests de `crypto/` antes de implementar el módulo.
-- El módulo `crypto/messages.py` debe aceptar y devolver `str` (texto plano / armored PGP),
-  nunca `bytes` directamente en la API pública — la conversión es interna.
-- `network/server.py` debe soportar múltiples conexiones simultáneas (chat de grupo futuro).
-- En `ui/chat.py`, el input de `prompt_toolkit` y el output de `rich` deben coordinarse
-  para que los mensajes entrantes no rompan la línea de input del usuario.
-- Compatibilidad WSL: no usar rutas hardcoded; usar siempre `platformdirs`.
+- `asyncio` for all I/O. No blocking calls in the event loop.
+- `logging` for internal diagnostics. No `print()` in library code.
+- Type hints required on all public functions. `mypy` must pass.
+- Tests use generated keys with a fixed test passphrase — never real credentials.
+- Key storage: `platformdirs.user_config_dir("stealth-message")` + `/keys/private.asc` (0600).
+- Config: `config.json` with `alias` field only. No passphrase, no secrets.
