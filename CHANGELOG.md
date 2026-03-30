@@ -9,6 +9,12 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Fixed
+- `ui/chat.py`: `/move` desconectaba la sesión entera del peer — al hacer `/switch` o `/move`,
+  el `_recv_task` del cliente antiguo disparaba `on_disconnected` en su bloque `finally`,
+  poniendo `_stop_event` y cerrando el chat. Corregido anulando `on_disconnected` del cliente
+  viejo antes de llamar a `disconnect()`.
+
 ### Changed
 - `ui/chat.py`: `_print_help` reescrita con una tabla Rich (`Table.grid`) en lugar de
   texto inline — los comandos se muestran en dos columnas alineadas (comando + descripción)

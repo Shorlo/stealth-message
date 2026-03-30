@@ -664,8 +664,11 @@ class ChatScreen:
             return
 
         # Disconnect current client cleanly.
+        # Null out the callback first so the finalizer of _recv_task does not
+        # fire on_disconnected (which would set _stop_event and kill the session).
         old_client = self._join_client
         if old_client is not None:
+            old_client.on_disconnected = None
             try:
                 await old_client.disconnect()
             except Exception:
