@@ -48,6 +48,9 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Added
 - `network/server.py`: método `add_room(room_id)` — añade una sala en caliente
+- `ui/chat.py`: `/switch <room>` en modo join — desconecta del room actual y conecta
+  al nuevo; si el room está lleno (4006) muestra "Room already occupied" y reconecta
+  al room anterior; si no existe (4007) igual; `_switch_join_room` y `_reconnect_to_room`
 - `ui/chat.py`: comando `/new <room>` en modo host — crea una sala nueva sin reiniciar
 - `ui/chat.py`: `/help` e `/rooms` siempre disponibles en modo host
 - `ui/chat.py`: banner de inicio del host muestra la URL de conexión y los comandos
