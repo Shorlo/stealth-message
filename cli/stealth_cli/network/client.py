@@ -85,7 +85,10 @@ class StealthClient:
         self._peer_fingerprint: str | None = None
 
         # Public callbacks.
-        self.on_message: Callable[[str], Awaitable[None]] | None = None
+        # Signature: async def cb(plaintext: str, sender: str | None) -> None
+        # sender is None for direct messages, or the originating peer alias for
+        # group-room forwarded messages.
+        self.on_message: Callable[[str, str | None], Awaitable[None]] | None = None
         self.on_disconnected: Callable[[], Awaitable[None]] | None = None
         # Called when the server puts this client in pending state (group room).
         self.on_pending: Callable[[], Awaitable[None]] | None = None
@@ -447,7 +450,8 @@ class StealthClient:
             return
 
         if self.on_message:
-            await self.on_message(plaintext)
+            sender: str | None = msg.get("sender") or None  # type: ignore[assignment]
+            await self.on_message(plaintext, sender)
 
     async def _safe_send_error(self, code: int, reason: str) -> None:
         """Send an error frame, ignoring a closed connection."""

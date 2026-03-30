@@ -298,9 +298,9 @@ class ChatScreen:
             self._passphrase,
         )
 
-        async def on_message(plaintext: str) -> None:
+        async def on_message(plaintext: str, sender: str | None) -> None:
             state = self._room_states.get(room_id)
-            peer_alias = (state.peer_alias if state else None) or "peer"
+            peer_alias = sender or (state.peer_alias if state else None) or "peer"
             await self._enqueue_incoming(peer_alias, plaintext, room_id)
 
         async def on_disconnected() -> None:
@@ -685,9 +685,9 @@ class ChatScreen:
             self._alias, self._armored_private, self._passphrase
         )
 
-        async def on_message(plaintext: str) -> None:
+        async def on_message(plaintext: str, sender: str | None) -> None:
             state = self._room_states.get(target)
-            peer_alias = (state.peer_alias if state else None) or "peer"
+            peer_alias = sender or (state.peer_alias if state else None) or "peer"
             await self._enqueue_incoming(peer_alias, plaintext, target)
 
         async def on_disconnected() -> None:
@@ -786,9 +786,9 @@ class ChatScreen:
             self._alias, self._armored_private, self._passphrase
         )
 
-        async def on_message(plaintext: str) -> None:
+        async def on_message(plaintext: str, sender: str | None) -> None:
             state = self._room_states.get(room_id)
-            peer_alias = (state.peer_alias if state else None) or "peer"
+            peer_alias = sender or (state.peer_alias if state else None) or "peer"
             await self._enqueue_incoming(peer_alias, plaintext, room_id)
 
         async def on_disconnected() -> None:

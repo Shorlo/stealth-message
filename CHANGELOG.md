@@ -10,6 +10,9 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Fixed
+- `network/client.py`, `ui/chat.py`: en sala de grupo, los mensajes reenviados mostraban
+  el nombre del host en lugar del emisor real — el cliente ahora lee el campo `sender`
+  del frame y lo usa como alias en la UI
 - `ui/chat.py`: la lista de comandos ya no se muestra cada vez que un peer se conecta
   en modo host — solo aparece en el banner inicial y al escribir `/help`
 - `ui/chat.py`: `/move` desconectaba la sesión entera del peer — al hacer `/switch` o `/move`,
