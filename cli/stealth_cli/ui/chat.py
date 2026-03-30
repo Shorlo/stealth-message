@@ -84,6 +84,8 @@ class RoomState:
     peer_fingerprint: Optional[str] = None  # first/only peer (1:1 rooms)
     connected: bool = False
     is_group: bool = False
+    # True when the server told us this is a group room but we haven't joined it.
+    known_group: bool = False
     # Group rooms may have multiple peers.
     peer_aliases: Optional[list[str]] = None
     peer_fingerprints: Optional[dict[str, str]] = None
@@ -335,11 +337,15 @@ class ChatScreen:
             # Switch to the new room automatically.
             await self._switch_join_room(target_room)
 
+        async def on_roomlist(group_rooms: list[str]) -> None:
+            self._update_known_groups(group_rooms)
+
         client.on_message = on_message
         client.on_disconnected = on_disconnected
         client.on_pending = on_pending
         client.on_approved = on_approved
         client.on_move = on_move
+        client.on_roomlist = on_roomlist
 
         _print_header()
         console.print(f"[cyan]Connecting to[/cyan] [bold]{uri}[/bold]")
@@ -720,11 +726,15 @@ class ChatScreen:
             )
             await self._switch_join_room(next_room)
 
+        async def on_roomlist_switch(group_rooms: list[str]) -> None:
+            self._update_known_groups(group_rooms)
+
         new_client.on_message = on_message
         new_client.on_disconnected = on_disconnected
         new_client.on_pending = on_pending
         new_client.on_approved = on_approved
         new_client.on_move = on_move
+        new_client.on_roomlist = on_roomlist_switch
 
         console.print(f"[cyan]Switching to room[/cyan] [bold]{target}[/bold]…")
 
@@ -797,8 +807,12 @@ class ChatScreen:
             )
             self._stop_event.set()
 
+        async def on_roomlist_reconnect(group_rooms: list[str]) -> None:
+            self._update_known_groups(group_rooms)
+
         new_client.on_message = on_message
         new_client.on_disconnected = on_disconnected
+        new_client.on_roomlist = on_roomlist_reconnect
 
         try:
             await new_client.connect(self._join_uri, room_id=room_id)
@@ -837,6 +851,16 @@ class ChatScreen:
             ]
         )
         await self._print_queue.put(Text.assemble(*parts))
+
+    def _update_known_groups(self, group_rooms: list[str]) -> None:
+        """Update _room_states with group rooms received from the server."""
+        for room_id in group_rooms:
+            if room_id not in self._room_states:
+                self._room_states[room_id] = RoomState(
+                    room_id=room_id, is_group=True, known_group=True
+                )
+            else:
+                self._room_states[room_id].is_group = True
 
 
 # --------------------------------------------------------------------------- #
@@ -919,9 +943,16 @@ def _print_rooms(
         marker = "▶" if room_id == active_room else " "
         room_label = f"[bold]{room_id}[/bold]" if room_id == active_room else room_id
         if state.connected:
+            peers = state.peer_aliases or ([state.peer_alias] if state.peer_alias else [])
+            peer_str = ", ".join(peers) if peers else ""
             console.print(
                 f"[bold cyan]{marker}[/bold cyan] {room_label}"
-                f"  [green]✓[/green] [magenta]{state.peer_alias or ''}[/magenta]"
+                f"  [green]✓[/green] [magenta]{peer_str}[/magenta]"
+            )
+        elif state.known_group or state.is_group:
+            console.print(
+                f"[bold cyan]{marker}[/bold cyan] {room_label}"
+                f"  [yellow]group[/yellow]  [dim]/switch to join[/dim]"
             )
         else:
             console.print(

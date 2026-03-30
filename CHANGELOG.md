@@ -9,6 +9,18 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Added
+- **Descubrimiento de salas de grupo**: los peers ven en `/rooms` todas las salas de grupo
+  del servidor aunque no estén en ellas — pueden hacer `/switch <sala>` para solicitar
+  entrada (el host debe aprobar si la sala ya tiene usuarios)
+  - `network/server.py`: nuevo mensaje `roomlist` enviado tras el handshake y cada vez
+    que se crea o convierte una sala de grupo. Métodos `_send_roomlist_to` y
+    `_broadcast_roomlist`.
+  - `network/client.py`: maneja `roomlist`, nuevo callback `on_roomlist(list[str])`.
+  - `ui/chat.py`: `_update_known_groups` actualiza `_room_states`; `_print_rooms` muestra
+    `[yellow]group[/yellow]  /switch to join` para salas conocidas pero no unidas.
+  - `docs/protocol.md`: mensaje `roomlist`, versión 0.4.
+
 ### Fixed
 - `network/client.py`, `ui/chat.py`: en sala de grupo, los mensajes reenviados mostraban
   el nombre del host en lugar del emisor real — el cliente ahora lee el campo `sender`
