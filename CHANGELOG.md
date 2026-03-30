@@ -41,6 +41,8 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
   `Connected to Shorlo  [room: room1]`
 - `ui/chat.py`: UI de salas activada con 1 sola sala nombrada (antes requería ≥2)
 - `network/server.py`: `_allowed_rooms` cambiado de `frozenset` a `set` para mutabilidad
+- `ui/chat.py`: `/rooms` imprimía `[dim]waiting for peer…[/dim]` literal — `_print_rooms`
+  usaba `Text.assemble()` que no parsea markup; reescrito con `console.print()` y markup
 
 ### Added
 - `network/server.py`: método `add_room(room_id)` — añade una sala en caliente
