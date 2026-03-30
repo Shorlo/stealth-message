@@ -10,6 +10,23 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Changed
+- `network/server.py`: replaced deprecated `asyncio.get_event_loop()` with
+  `asyncio.get_running_loop()` in `make_group_room()`.
+- `ui/chat.py`: extracted `_make_join_client(room_id)` — single factory that
+  creates a `StealthClient` and wires all six callbacks (`on_message`,
+  `on_disconnected`, `on_pending`, `on_approved`, `on_move`, `on_roomlist`).
+  Eliminates duplicated callback blocks in `run_join`, `_switch_join_room`, and
+  `_reconnect_to_room`, and fixes the missing `on_move` / `on_pending` /
+  `on_approved` callbacks that were absent in `_reconnect_to_room`.
+- `ui/chat.py`: extracted `_make_send_fn(room_id)` — replaces three identical
+  inline closures (`_make_send_new`, `_make_send_g`, `_make_send_m`) that
+  existed inside `_input_loop`.
+- `ui/chat.py`: extracted `_dispatch_command(text)` — all command parsing
+  (`/quit`, `/fp`, `/help`, `/rooms`, `/new`, `/switch`, `/allow`, `/deny`,
+  `/group`, `/move`, `/pending`) moved out of `_input_loop` into a dedicated
+  async method. `_input_loop` now delegates to it in three lines.
+
+### Changed
 - `README.md`: actualizado con características actuales, inicio rápido y ejemplo de uso
 - `ARCHITECTURE.md`: actualizado con modelo de salas, flujo de descubrimiento,
   flujo de sala de grupo y decisión de diseño sobre relay en host
