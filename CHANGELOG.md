@@ -10,6 +10,8 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Fixed
+- `ui/chat.py`: la lista de comandos ya no se muestra cada vez que un peer se conecta
+  en modo host — solo aparece en el banner inicial y al escribir `/help`
 - `ui/chat.py`: `/move` desconectaba la sesión entera del peer — al hacer `/switch` o `/move`,
   el `_recv_task` del cliente antiguo disparaba `on_disconnected` en su bloque `finally`,
   poniendo `_stop_event` y cerrando el chat. Corregido anulando `on_disconnected` del cliente

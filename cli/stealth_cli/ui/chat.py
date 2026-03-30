@@ -218,9 +218,6 @@ class ChatScreen:
             await self._print_queue.put(
                 Text.from_markup("[dim]  Verify fingerprint out-of-band before trusting.[/dim]")
             )
-            await self._print_queue.put(
-                _build_help_table(multi_room=self._multi_room, is_host=True)
-            )
 
         async def on_message(peer_alias: str, plaintext: str, room_id: str) -> None:
             await self._enqueue_incoming(peer_alias, plaintext, room_id)
