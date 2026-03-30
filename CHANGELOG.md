@@ -33,13 +33,20 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ### Fixed
 - `ui/chat.py`: markup `[dim]...[/dim]` se imprimía como texto literal en el banner
-  de conexión del host — cambiado a `Text.from_markup()`
+  de conexión del host — cambiado a `Text.from_markup()` en todos los sitios afectados
 - `ui/chat.py`: la lista de comandos no aparecía al conectarse un peer en modo host —
   ahora se encola en `on_connected` junto con el banner de fingerprint
-- `ui/chat.py`: `/rooms` se enviaba como mensaje en modo single-room en lugar de
-  consumirse como comando — separada la condición de visibilidad de la de consumo
-- `ui/chat.py`: UI de salas activada con 1 sola sala nombrada explícita (ej. `room1`);
-  antes requería ≥2 salas — ahora `_multi_room = room_ids != ["default"]`
+- `ui/chat.py`: `/rooms` se enviaba como mensaje en lugar de consumirse como comando
+- `ui/chat.py`: banner de join mostraba `Connected to [room1] Shorlo`; ahora muestra
+  `Connected to Shorlo  [room: room1]`
+- `ui/chat.py`: UI de salas activada con 1 sola sala nombrada (antes requería ≥2)
+- `network/server.py`: `_allowed_rooms` cambiado de `frozenset` a `set` para mutabilidad
+
+### Added
+- `network/server.py`: método `add_room(room_id)` — añade una sala en caliente
+- `ui/chat.py`: comando `/new <room>` en modo host — crea una sala nueva sin reiniciar
+- `ui/chat.py`: `/help` e `/rooms` siempre disponibles en modo host
+- `ui/chat.py`: banner de inicio del host muestra la URL de conexión y los comandos
 - `__main__.py`: suprimidos warnings de pgpy que aparecían en pantalla durante el chat
   (compresión, self-sigs, revocación, flags, TripleDES) — son limitaciones internas de
   pgpy que no afectan al cifrado ni a la firma
