@@ -103,8 +103,8 @@ class StealthServer:
         self._armored_pubkey: str = str(self._privkey.pubkey)
 
         # Allowed rooms: None → accept any room name; set → only those names.
-        self._allowed_rooms: frozenset[str] | None = (
-            frozenset(rooms) if rooms is not None else None
+        self._allowed_rooms: set[str] | None = (
+            set(rooms) if rooms is not None else None
         )
         # room_id → PeerSession (max 1 peer per room).
         self._rooms: dict[str, PeerSession] = {}
@@ -182,6 +182,20 @@ class StealthServer:
         """Encrypt ``plaintext`` separately for each peer in every room."""
         for peer in list(self._rooms.values()):
             await self._send_message_to(peer, plaintext)
+
+    def add_room(self, room_id: str) -> None:
+        """Add a new room at runtime so peers can join it.
+
+        If the server was created with a fixed room list, the new room is
+        appended to that list.  If the server is open (no fixed rooms), this
+        is a no-op because any name is already accepted.
+
+        Args:
+            room_id: Name of the new room (max 64 chars).
+        """
+        room_id = room_id[:64]
+        if self._allowed_rooms is not None:
+            self._allowed_rooms.add(room_id)
 
     async def send_to_room(self, room_id: str, plaintext: str) -> None:
         """Encrypt and send ``plaintext`` to the peer currently in ``room_id``.

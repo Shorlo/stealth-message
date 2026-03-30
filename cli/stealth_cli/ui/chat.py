@@ -159,6 +159,8 @@ class ChatScreen:
 
         self._stop_event = asyncio.Event()
         self._print_queue: asyncio.Queue[Optional[Text]] = asyncio.Queue()
+        # Reference to the running server (host mode only) — used by /new command.
+        self._server: Optional[StealthServer] = None
 
     # ------------------------------------------------------------------ #
     # Host mode                                                            #
@@ -194,25 +196,25 @@ class ChatScreen:
                 )
             )
             if self._multi_room:
-                await self._print_queue.put(
-                    Text(
-                        f"    [dim]Type /switch {room_id} to chat in this room[/dim]"
-                        if room_id != self._active_room
-                        else "    [dim]This is your active room.[/dim]",
-                        style="",
-                        no_wrap=False,
+                if room_id != self._active_room:
+                    await self._print_queue.put(
+                        Text.from_markup(
+                            f"    [dim]Type /switch {room_id} to chat in this room[/dim]"
+                        )
                     )
-                )
+                else:
+                    await self._print_queue.put(
+                        Text.from_markup("    [dim]This is your active room.[/dim]")
+                    )
             await self._print_queue.put(
                 Text.from_markup("[dim]  Verify fingerprint out-of-band before trusting.[/dim]")
             )
             # Show help in the queue so it appears after the connection banner.
             help_text = "[dim]  /fp[/dim]   fingerprint   [dim]/quit[/dim]  exit"
+            help_text += "   [dim]/rooms[/dim]  list rooms"
             if self._multi_room:
-                help_text += (
-                    "   [dim]/rooms[/dim]  list rooms"
-                    "   [dim]/switch <room>[/dim]  change room"
-                )
+                help_text += "   [dim]/switch <room>[/dim]  change room"
+            help_text += "   [dim]/new <room>[/dim]  create room"
             await self._print_queue.put(Text.from_markup(help_text))
 
         async def on_message(
@@ -252,16 +254,19 @@ class ChatScreen:
             self._send_fns[rid] = _make_send(rid)
 
         await server.start(host="0.0.0.0", port=port)
+        self._server = server
 
         _print_header()
         console.print(f"[cyan]Hosting on port[/cyan] [bold]{server.port}[/bold]")
         if self._multi_room:
             rooms_fmt = "  ".join(f"[cyan]{r}[/cyan]" for r in self._room_ids)
             console.print(f"[bold]Rooms:[/bold]  {rooms_fmt}")
-            console.print(
-                "[dim]Share: [/dim][bold]ws://YOUR_IP:"
-                f"{server.port}[/bold][dim]  (give peer the room name)[/dim]"
-            )
+        console.print(
+            "[dim]Share:[/dim] [bold]ws://YOUR_IP:"
+            f"{server.port}[/bold]"
+            + ("[dim]  + room name[/dim]" if self._multi_room else "")
+        )
+        _print_help(multi_room=self._multi_room, is_host=True)
         console.print("[dim]Waiting for peers to connect…[/dim]")
         console.print(Rule(style="dim"))
         console.print()
@@ -392,12 +397,45 @@ class ChatScreen:
                         continue
 
                     if text.lower() == "/help":
-                        _print_help(multi_room=self._multi_room)
+                        _print_help(
+                            multi_room=self._multi_room,
+                            is_host=self._server is not None,
+                        )
                         continue
 
                     if text.lower() == "/rooms":
-                        if self._multi_room:
-                            _print_rooms(self._room_states, self._active_room)
+                        _print_rooms(self._room_states, self._active_room)
+                        continue
+
+                    # /new <room> — host creates a new room at runtime
+                    if self._server is not None and (
+                        text.lower().startswith("/new ")
+                    ):
+                        parts = text.split(None, 1)
+                        new_room = parts[1].strip() if len(parts) > 1 else ""
+                        if not new_room:
+                            console.print("[red]Usage:[/red] /new <room-name>")
+                        elif new_room in self._room_states:
+                            console.print(
+                                f"[yellow]Room '{new_room}' already exists.[/yellow]"
+                            )
+                        else:
+                            self._server.add_room(new_room)
+                            self._room_states[new_room] = RoomState(room_id=new_room)
+                            self._room_ids.append(new_room)
+
+                            def _make_send_new(rid: str) -> Callable[[str], object]:
+                                async def _send(t: str) -> None:
+                                    await self._server.send_to_room(rid, t)  # type: ignore[union-attr]
+                                return _send
+
+                            self._send_fns[new_room] = _make_send_new(new_room)
+                            if not self._multi_room:
+                                self._multi_room = True
+                            console.print(
+                                f"[green]✓[/green] Room [bold]{new_room}[/bold] created. "
+                                f"Use [bold]/switch {new_room}[/bold] to activate it."
+                            )
                         continue
 
                     if self._multi_room and (
@@ -502,10 +540,13 @@ def _print_connected_banner(
     fingerprint: Optional[str],
     room_id: Optional[str] = None,
 ) -> None:
-    parts: list[tuple[str, str]] = [("  ✓ ", "bold green"), ("Connected to ", "")]
+    parts: list[tuple[str, str]] = [
+        ("  ✓ ", "bold green"),
+        ("Connected to ", ""),
+        (peer_alias or "peer", "bold magenta"),
+    ]
     if room_id:
-        parts.append((f"[{room_id}]  ", "cyan dim"))
-    parts.append((peer_alias or "peer", "bold magenta"))
+        parts.append((f"  [room: {room_id}]", "cyan dim"))
     console.print(Text.assemble(*parts))
     console.print(
         Text.assemble(
@@ -515,7 +556,7 @@ def _print_connected_banner(
     )
     console.print("[dim]  Verify fingerprint out-of-band before trusting.[/dim]")
     console.print()
-    _print_help(multi_room=room_id is not None)
+    _print_help(multi_room=room_id is not None, is_host=False)
     console.print(Rule(style="dim"))
     console.print()
 
@@ -575,13 +616,14 @@ def _print_rooms(
     console.print()
 
 
-def _print_help(*, multi_room: bool = False) -> None:
+def _print_help(*, multi_room: bool = False, is_host: bool = False) -> None:
     base = "[dim]  /fp[/dim]   fingerprint   [dim]/quit[/dim]  exit"
+    if multi_room or is_host:
+        base += "   [dim]/rooms[/dim]  list rooms"
     if multi_room:
-        base += (
-            "   [dim]/rooms[/dim]  list rooms"
-            "   [dim]/switch <room>[/dim]  change room"
-        )
+        base += "   [dim]/switch <room>[/dim]  change room"
+    if is_host:
+        base += "   [dim]/new <room>[/dim]  create room"
     console.print(base)
 
 
