@@ -1,31 +1,34 @@
 """WebSocket server — stealth-message protocol host (protocol.md §1–§4).
 
-The host is always a participant in the conversation, never a relay.
-All crypto operations (encrypt/decrypt) happen here using the host's own
-PGP keypair.
-
 Room model
 ----------
-Each server supports one or more named rooms (§1.1).  A room admits exactly
-one peer at a time.  If the host is created with a fixed ``rooms`` list, only
-those room names are accepted; unknown rooms get error 4007.  If ``rooms`` is
-``None`` (default), any room name is accepted on first connection.
+Rooms can be **1-on-1** (default, max 1 peer) or **group** (unlimited peers
+with host-approval gate).
+
+* 1-on-1 room: second peer gets error 4006 immediately.
+* Group room:  second+ peer gets a ``pending`` message and waits up to
+  JOIN_REQUEST_TIMEOUT seconds for the host to ``/allow`` or ``/deny`` them.
+  The ``on_join_request`` callback fires so the host UI can display the
+  prompt.
+
+The host can also call ``move_peer(alias, target_room)`` which sends a
+``move`` message to that peer so their client can switch rooms automatically.
+If the target is occupied the room is automatically converted to a group room
+and the incoming peer is pre-approved (no approval prompt).
 
 Usage example::
 
     server = StealthServer("Alice", armored_privkey, passphrase,
                            rooms=["pepe", "juan"])
 
-    async def on_msg(alias: str, plaintext: str, room_id: str) -> None:
-        print(f"[{room_id}] [{alias}] {plaintext}")
+    async def on_join_request(alias, fingerprint, room_id):
+        print(f"{alias} wants to join {room_id}")
 
-    server.on_message = on_msg
+    server.on_join_request = on_join_request
     await server.start(host="0.0.0.0", port=8765)
 
-    await server.send_to_room("pepe", "Hello Pepe!")
-    await server.stop()
-
-All callbacks must be ``async def`` functions.
+    await server.approve_join("Pepe")     # or deny_join(...)
+    await server.move_peer("Juan", "pepe")
 """
 
 from __future__ import annotations
@@ -50,7 +53,8 @@ from stealth_cli.exceptions import ProtocolError, SignatureError
 logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = "1"
-HANDSHAKE_TIMEOUT = 10.0  # seconds — protocol §1.1
+HANDSHAKE_TIMEOUT = 10.0      # seconds — protocol §1.1
+JOIN_REQUEST_TIMEOUT = 60.0   # seconds — host must respond within this time
 
 
 # --------------------------------------------------------------------------- #
@@ -64,10 +68,20 @@ class PeerSession:
 
     ws: ServerConnection
     alias: str
-    armored_pubkey: str  # ASCII-armored PGP public key (not base64)
+    armored_pubkey: str
     fingerprint: str
     room_id: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+
+@dataclass
+class PendingPeer:
+    """A peer waiting for host approval to enter a group room."""
+
+    session: PeerSession
+    room_id: str
+    event: asyncio.Event = field(default_factory=asyncio.Event)
+    approved: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -78,15 +92,16 @@ class PeerSession:
 class StealthServer:
     """WebSocket host implementing the stealth-message protocol.
 
-    Supports multiple simultaneous rooms, each with exactly one peer.
+    Supports multiple rooms:
+    - 1-on-1 rooms (default): exactly one peer; second attempt gets 4006.
+    - Group rooms: multiple peers; new peers wait for host approval.
 
-    Attributes:
-        on_peer_connected: Called when a peer completes the handshake.
-            Signature: ``async def cb(alias: str, fingerprint: str, room_id: str) -> None``
-        on_message: Called when a decrypted message arrives from a peer.
-            Signature: ``async def cb(peer_alias: str, plaintext: str, room_id: str) -> None``
-        on_peer_disconnected: Called when a peer disconnects.
-            Signature: ``async def cb(alias: str, room_id: str) -> None``
+    Callbacks
+    ---------
+    on_peer_connected(alias, fingerprint, room_id)
+    on_message(alias, plaintext, room_id)
+    on_peer_disconnected(alias, room_id)
+    on_join_request(alias, fingerprint, room_id)  — group rooms only
     """
 
     def __init__(
@@ -95,45 +110,43 @@ class StealthServer:
         armored_privkey: str,
         passphrase: str,
         rooms: list[str] | None = None,
+        group_rooms: list[str] | None = None,
     ) -> None:
-        self._alias: str = alias[:64]  # §1.1: max 64 UTF-8 chars
+        self._alias: str = alias[:64]
         self._privkey = load_private_key(armored_privkey, passphrase)
         self._passphrase: str = passphrase
-        # Derive armored public key from the loaded private key.
         self._armored_pubkey: str = str(self._privkey.pubkey)
 
-        # Allowed rooms: None → accept any room name; set → only those names.
+        # Allowed rooms: None → accept any name; set → only those names.
         self._allowed_rooms: set[str] | None = (
             set(rooms) if rooms is not None else None
         )
-        # room_id → PeerSession (max 1 peer per room).
-        self._rooms: dict[str, PeerSession] = {}
+        # Group rooms allow multiple peers (with host approval).
+        self._group_rooms: set[str] = set(group_rooms or [])
 
-        self._ws_server: Any = None  # websockets Server object
+        # room_id → list[PeerSession]  (max 1 for 1:1 rooms, N for group rooms)
+        self._rooms: dict[str, list[PeerSession]] = {}
+        # Pending join requests keyed by session id.
+        self._pending: dict[str, PendingPeer] = {}
+        # alias → room_id for host-initiated moves (bypass approval).
+        self._pre_approved: dict[str, str] = {}
+
+        self._ws_server: Any = None
         self._server_task: asyncio.Task[None] | None = None
         self._stop_event: asyncio.Event | None = None
         self._started_event: asyncio.Event | None = None
 
         # Public callbacks — set before calling start().
-        self.on_peer_connected: (
-            Callable[[str, str, str], Awaitable[None]] | None
-        ) = None
+        self.on_peer_connected: Callable[[str, str, str], Awaitable[None]] | None = None
         self.on_message: Callable[[str, str, str], Awaitable[None]] | None = None
-        self.on_peer_disconnected: (
-            Callable[[str, str], Awaitable[None]] | None
-        ) = None
+        self.on_peer_disconnected: Callable[[str, str], Awaitable[None]] | None = None
+        self.on_join_request: Callable[[str, str, str], Awaitable[None]] | None = None
 
     # ------------------------------------------------------------------ #
     # Public API                                                           #
     # ------------------------------------------------------------------ #
 
     async def start(self, host: str = "localhost", port: int = 0) -> None:
-        """Start the server and wait until it is ready to accept connections.
-
-        Args:
-            host: Bind address. Defaults to ``localhost``.
-            port: TCP port. ``0`` lets the OS assign a free port.
-        """
         self._stop_event = asyncio.Event()
         self._started_event = asyncio.Event()
         self._server_task = asyncio.create_task(
@@ -142,7 +155,6 @@ class StealthServer:
         await self._started_event.wait()
 
     async def stop(self) -> None:
-        """Stop the server, close all connections, and wait for cleanup."""
         if self._stop_event:
             self._stop_event.set()
         if self._server_task:
@@ -153,79 +165,127 @@ class StealthServer:
 
     @property
     def port(self) -> int:
-        """TCP port the server is listening on. Valid only after :meth:`start`."""
         if self._ws_server is None:
             raise RuntimeError("Server has not been started yet")
         return self._ws_server.sockets[0].getsockname()[1]
 
     @property
     def connected_peers(self) -> list[str]:
-        """Aliases of currently connected and handshaked peers (all rooms)."""
-        return [p.alias for p in self._rooms.values()]
+        """Aliases of all connected peers across all rooms."""
+        return [p.alias for peers in self._rooms.values() for p in peers]
 
     @property
-    def room_peers(self) -> dict[str, str | None]:
-        """Map of room_id → peer alias (``None`` if the room is empty).
-
-        Only rooms that have ever had a peer, or are in the allowed-rooms list,
-        appear in the result.
-        """
-        result: dict[str, str | None] = {}
+    def room_peers(self) -> dict[str, list[str] | None]:
+        """Map of room_id → list of peer aliases (``None`` if empty)."""
+        result: dict[str, list[str] | None] = {}
         if self._allowed_rooms is not None:
             for r in self._allowed_rooms:
                 result[r] = None
-        for room_id, peer in self._rooms.items():
-            result[room_id] = peer.alias
+        for room_id, peers in self._rooms.items():
+            result[room_id] = [p.alias for p in peers] if peers else None
         return result
 
-    async def broadcast(self, plaintext: str) -> None:
-        """Encrypt ``plaintext`` separately for each peer in every room."""
-        for peer in list(self._rooms.values()):
-            await self._send_message_to(peer, plaintext)
-
-    def add_room(self, room_id: str) -> None:
-        """Add a new room at runtime so peers can join it.
-
-        If the server was created with a fixed room list, the new room is
-        appended to that list.  If the server is open (no fixed rooms), this
-        is a no-op because any name is already accepted.
-
-        Args:
-            room_id: Name of the new room (max 64 chars).
-        """
+    def add_room(self, room_id: str, group: bool = False) -> None:
+        """Add a new room (or convert existing) at runtime."""
         room_id = room_id[:64]
         if self._allowed_rooms is not None:
             self._allowed_rooms.add(room_id)
+        if group:
+            self._group_rooms.add(room_id)
+
+    def make_group_room(self, room_id: str) -> None:
+        """Convert a room to group mode (multiple peers, host approval required)."""
+        self._group_rooms.add(room_id)
+        if self._allowed_rooms is not None:
+            self._allowed_rooms.add(room_id)
+
+    def is_group_room(self, room_id: str) -> bool:
+        return room_id in self._group_rooms
+
+    def approve_join(self, alias: str) -> None:
+        """Approve a pending join request by peer alias."""
+        for entry in self._pending.values():
+            if entry.session.alias == alias:
+                entry.approved = True
+                entry.event.set()
+                return
+        raise ValueError(f"No pending join request from {alias!r}")
+
+    def deny_join(self, alias: str) -> None:
+        """Deny a pending join request by peer alias."""
+        for entry in self._pending.values():
+            if entry.session.alias == alias:
+                entry.approved = False
+                entry.event.set()
+                return
+        raise ValueError(f"No pending join request from {alias!r}")
+
+    @property
+    def pending_requests(self) -> list[tuple[str, str, str]]:
+        """List of (alias, fingerprint, room_id) for pending join requests."""
+        return [
+            (e.session.alias, e.session.fingerprint, e.room_id)
+            for e in self._pending.values()
+        ]
+
+    async def move_peer(self, alias: str, target_room: str) -> None:
+        """Send a ``move`` message to a peer, pre-approving them for ``target_room``.
+
+        The target room is automatically converted to a group room if it
+        already has a peer.
+        """
+        target_room = target_room[:64]
+        # Find the peer.
+        peer: PeerSession | None = None
+        for peers in self._rooms.values():
+            for p in peers:
+                if p.alias == alias:
+                    peer = p
+                    break
+
+        if peer is None:
+            raise ValueError(f"No connected peer with alias {alias!r}")
+
+        # If target room already has peers, make it a group room.
+        if self._rooms.get(target_room):
+            self.make_group_room(target_room)
+
+        # Pre-approve this alias for the target room (bypasses approval prompt).
+        self._pre_approved[alias] = target_room
+
+        # Ensure the target room is accessible.
+        if self._allowed_rooms is not None:
+            self._allowed_rooms.add(target_room)
+
+        try:
+            await peer.ws.send(
+                json.dumps({"type": "move", "room": target_room})
+            )
+        except websockets.exceptions.ConnectionClosed:
+            self._pre_approved.pop(alias, None)
+            raise
+
+    async def broadcast(self, plaintext: str) -> None:
+        """Encrypt and send to every connected peer across all rooms."""
+        for peers in list(self._rooms.values()):
+            for peer in list(peers):
+                await self._send_message_to(peer, plaintext)
 
     async def send_to_room(self, room_id: str, plaintext: str) -> None:
-        """Encrypt and send ``plaintext`` to the peer currently in ``room_id``.
-
-        Args:
-            room_id: Target room name.
-            plaintext: UTF-8 text to send.
-
-        Raises:
-            ValueError: If no peer is connected in that room.
-        """
-        peer = self._rooms.get(room_id)
-        if peer is None:
+        """Encrypt and send to all peers in the given room."""
+        peers = self._rooms.get(room_id, [])
+        if not peers:
             raise ValueError(f"No peer connected in room {room_id!r}")
-        await self._send_message_to(peer, plaintext)
+        for peer in list(peers):
+            await self._send_message_to(peer, plaintext)
 
     async def send_to(self, alias: str, plaintext: str) -> None:
-        """Encrypt and send ``plaintext`` to the peer with the given alias.
-
-        Args:
-            alias: Peer alias as received during the handshake.
-            plaintext: UTF-8 text to send.
-
-        Raises:
-            ValueError: If no connected peer has the given alias.
-        """
-        for peer in self._rooms.values():
-            if peer.alias == alias:
-                await self._send_message_to(peer, plaintext)
-                return
+        """Encrypt and send to the peer with the given alias."""
+        for peers in self._rooms.values():
+            for peer in peers:
+                if peer.alias == alias:
+                    await self._send_message_to(peer, plaintext)
+                    return
         raise ValueError(f"No connected peer with alias {alias!r}")
 
     # ------------------------------------------------------------------ #
@@ -233,12 +293,8 @@ class StealthServer:
     # ------------------------------------------------------------------ #
 
     async def _run(self, host: str, port: int) -> None:
-        """Background task: keep the WebSocket server alive."""
         async with serve(
-            self._handle_connection,
-            host,
-            port,
-            ping_interval=None,
+            self._handle_connection, host, port, ping_interval=None
         ) as ws_server:
             self._ws_server = ws_server
             assert self._started_event is not None
@@ -251,7 +307,6 @@ class StealthServer:
     # ------------------------------------------------------------------ #
 
     async def _handle_connection(self, ws: ServerConnection) -> None:
-        """Handle the full lifecycle of one peer connection."""
         peer: PeerSession | None = None
         try:
             peer = await asyncio.wait_for(
@@ -270,13 +325,8 @@ class StealthServer:
             await self._safe_send_error(ws, 4002, "handshake error")
             return
 
-        self._rooms[peer.room_id] = peer
-        logger.info(
-            "Peer connected: %s  fp=%s  room=%s",
-            peer.alias,
-            peer.fingerprint,
-            peer.room_id,
-        )
+        self._rooms.setdefault(peer.room_id, []).append(peer)
+        logger.info("Peer connected: %s  fp=%s  room=%s", peer.alias, peer.fingerprint, peer.room_id)
 
         if self.on_peer_connected:
             await self.on_peer_connected(peer.alias, peer.fingerprint, peer.room_id)
@@ -287,7 +337,11 @@ class StealthServer:
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
-            self._rooms.pop(peer.room_id, None)
+            room_list = self._rooms.get(peer.room_id, [])
+            if peer in room_list:
+                room_list.remove(peer)
+            if not room_list:
+                self._rooms.pop(peer.room_id, None)
             logger.info("Peer disconnected: %s  room=%s", peer.alias, peer.room_id)
             if self.on_peer_disconnected:
                 await self.on_peer_disconnected(peer.alias, peer.room_id)
@@ -297,10 +351,6 @@ class StealthServer:
     # ------------------------------------------------------------------ #
 
     async def _do_handshake(self, ws: ServerConnection) -> PeerSession:
-        """Server-side handshake: receive hello → validate → send hello.
-
-        The client always sends first (protocol §1.1).
-        """
         raw = await ws.recv()
         try:
             msg: dict[str, Any] = json.loads(raw)
@@ -308,9 +358,7 @@ class StealthServer:
             raise ProtocolError("malformed hello: invalid JSON", 4002) from exc
 
         if msg.get("type") != "hello":
-            raise ProtocolError(
-                f"expected hello, got {msg.get('type')!r}", 4002
-            )
+            raise ProtocolError(f"expected hello, got {msg.get('type')!r}", 4002)
 
         if str(msg.get("version")) != PROTOCOL_VERSION:
             raise ProtocolError(
@@ -321,14 +369,10 @@ class StealthServer:
             if not msg.get(required):
                 raise ProtocolError(f"hello missing field: {required!r}", 4002)
 
-        # Room validation — §1.1
         room_id = str(msg.get("room") or "default")[:64] or "default"
 
         if self._allowed_rooms is not None and room_id not in self._allowed_rooms:
             raise ProtocolError(f"room {room_id!r} not found on this server", 4007)
-
-        if room_id in self._rooms:
-            raise ProtocolError(f"room {room_id!r} is already occupied", 4006)
 
         peer_alias = str(msg["alias"])[:64]
 
@@ -344,27 +388,74 @@ class StealthServer:
         except Exception as exc:
             raise ProtocolError("invalid pubkey in hello", 4002) from exc
 
+        existing = self._rooms.get(room_id, [])
+        is_group = room_id in self._group_rooms
+        is_pre_approved = self._pre_approved.get(peer_alias) == room_id
+
+        if existing and not is_group and not is_pre_approved:
+            # 1-on-1 room already occupied → reject.
+            raise ProtocolError(f"room {room_id!r} is already occupied", 4006)
+
+        if existing and is_pre_approved:
+            # Host-initiated move: remove from pre-approval list and proceed.
+            self._pre_approved.pop(peer_alias, None)
+
         # Send our hello.
         await ws.send(
-            json.dumps(
-                {
-                    "type": "hello",
-                    "version": PROTOCOL_VERSION,
-                    "alias": self._alias,
-                    "pubkey": base64.urlsafe_b64encode(
-                        self._armored_pubkey.encode("utf-8")
-                    ).decode("ascii"),
-                }
-            )
+            json.dumps({
+                "type": "hello",
+                "version": PROTOCOL_VERSION,
+                "alias": self._alias,
+                "pubkey": base64.urlsafe_b64encode(
+                    self._armored_pubkey.encode("utf-8")
+                ).decode("ascii"),
+            })
         )
 
-        return PeerSession(
+        peer = PeerSession(
             ws=ws,
             alias=peer_alias,
             armored_pubkey=peer_armored,
             fingerprint=peer_fp,
             room_id=room_id,
         )
+
+        if existing and is_group and not is_pre_approved:
+            # Group room already has peers → pending approval flow.
+            # We send the server hello FIRST so the client knows who the host is,
+            # then send `pending` so the client can display a waiting message.
+            pending = PendingPeer(session=peer, room_id=room_id)
+            self._pending[peer.id] = pending
+
+            try:
+                await ws.send(json.dumps({"type": "pending"}))
+            except websockets.exceptions.ConnectionClosed:
+                del self._pending[peer.id]
+                raise
+
+            # Notify the host UI.
+            if self.on_join_request:
+                await self.on_join_request(peer_alias, peer_fp, room_id)
+
+            # Wait for host decision.
+            try:
+                await asyncio.wait_for(pending.event.wait(), timeout=JOIN_REQUEST_TIMEOUT)
+            except asyncio.TimeoutError:
+                del self._pending[peer.id]
+                raise ProtocolError("join request timed out", 4008)
+
+            del self._pending[peer.id]
+
+            if not pending.approved:
+                raise ProtocolError("join request denied by host", 4008)
+
+            # Approved — tell the peer.
+            try:
+                await ws.send(json.dumps({"type": "approved"}))
+            except websockets.exceptions.ConnectionClosed:
+                raise
+
+        return peer
 
     # ------------------------------------------------------------------ #
     # Message dispatch — §2, §3, §4                                        #
@@ -373,7 +464,6 @@ class StealthServer:
     async def _dispatch(
         self, ws: ServerConnection, peer: PeerSession, raw: str | bytes
     ) -> None:
-        """Parse and route one incoming WebSocket frame."""
         try:
             msg: dict[str, Any] = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
@@ -389,35 +479,23 @@ class StealthServer:
         elif msg_type == "bye":
             await ws.close()
         elif msg_type == "pong":
-            pass  # Server does not currently send pings; ignore stray pongs.
+            pass
         elif msg_type == "error":
             logger.warning(
                 "Error from peer %s (room=%s): code=%s reason=%s",
-                peer.alias,
-                peer.room_id,
-                msg.get("code"),
-                msg.get("reason"),
+                peer.alias, peer.room_id, msg.get("code"), msg.get("reason"),
             )
         elif msg_type is None:
             await self._safe_send_error(ws, 4002, "missing 'type' field")
         else:
-            # Unknown type → ignore silently for forward compatibility (§5).
-            logger.debug(
-                "Ignoring unknown message type %r from %s (room=%s)",
-                msg_type,
-                peer.alias,
-                peer.room_id,
-            )
+            logger.debug("Ignoring unknown message type %r from %s", msg_type, peer.alias)
 
     async def _handle_chat(
         self, ws: ServerConnection, peer: PeerSession, msg: dict[str, Any]
     ) -> None:
-        """Decrypt and deliver a §2.1 chat message."""
         for required in ("id", "payload", "timestamp"):
             if required not in msg:
-                await self._safe_send_error(
-                    ws, 4002, f"message missing field: {required!r}"
-                )
+                await self._safe_send_error(ws, 4002, f"message missing field: {required!r}")
                 return
 
         try:
@@ -431,21 +509,24 @@ class StealthServer:
             await self._safe_send_error(ws, 4004, "decryption failed")
             return
 
-        logger.debug(
-            "Message from %s (room=%s): %d chars",
-            peer.alias,
-            peer.room_id,
-            len(plaintext),
-        )
+        logger.debug("Message from %s (room=%s): %d chars", peer.alias, peer.room_id, len(plaintext))
+
         if self.on_message:
             await self.on_message(peer.alias, plaintext, peer.room_id)
+
+        # In group rooms, forward the message to all other peers in the room.
+        if peer.room_id in self._group_rooms:
+            for other in list(self._rooms.get(peer.room_id, [])):
+                if other.id != peer.id:
+                    await self._send_message_to(other, plaintext, sender=peer.alias)
 
     # ------------------------------------------------------------------ #
     # Outbound helpers                                                     #
     # ------------------------------------------------------------------ #
 
-    async def _send_message_to(self, peer: PeerSession, plaintext: str) -> None:
-        """Encrypt ``plaintext`` for ``peer`` and send it."""
+    async def _send_message_to(
+        self, peer: PeerSession, plaintext: str, sender: str | None = None
+    ) -> None:
         try:
             with self._privkey.unlock(self._passphrase):
                 payload = encrypt(plaintext, peer.armored_pubkey, self._privkey)
@@ -453,25 +534,22 @@ class StealthServer:
             logger.error("Failed to encrypt for %s: %s", peer.alias, exc)
             return
 
+        frame: dict[str, Any] = {
+            "type": "message",
+            "id": str(uuid.uuid4()),
+            "payload": payload,
+            "timestamp": int(time.time() * 1000),
+        }
+        if sender is not None:
+            frame["sender"] = sender
+
         try:
-            await peer.ws.send(
-                json.dumps(
-                    {
-                        "type": "message",
-                        "id": str(uuid.uuid4()),
-                        "payload": payload,
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-            )
+            await peer.ws.send(json.dumps(frame))
         except websockets.exceptions.ConnectionClosed:
-            logger.debug(
-                "Connection closed before message could be sent to %s", peer.alias
-            )
+            logger.debug("Connection closed before message could be sent to %s", peer.alias)
 
     @staticmethod
     async def _safe_send_error(ws: ServerConnection, code: int, reason: str) -> None:
-        """Send a protocol error frame, ignoring a closed connection."""
         try:
             await ws.send(json.dumps({"type": "error", "code": code, "reason": reason}))
         except websockets.exceptions.ConnectionClosed:

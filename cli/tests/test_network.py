@@ -550,7 +550,7 @@ async def test_room_peers_property(
         await asyncio.sleep(0.1)
 
         peers = srv.room_peers
-        assert peers["a"] == CLIENT_ALIAS
+        assert peers["a"] == [CLIENT_ALIAS]
         assert peers["b"] is None
     finally:
         await cli.disconnect()
@@ -572,4 +572,193 @@ async def test_open_server_accepts_any_room(
         assert cli.room_id == "arbitrary-name"
     finally:
         await cli.disconnect()
+        await srv.stop()
+
+# ---------------------------------------------------------------------------
+# Group rooms — approval flow
+# ---------------------------------------------------------------------------
+
+
+async def test_group_room_allows_second_peer_after_approval(
+    server_keys: tuple[str, str],
+    client_keys: tuple[str, str],
+    client2_keys: tuple[str, str],
+) -> None:
+    """Two peers can be in the same group room once the host approves."""
+    join_requests: asyncio.Queue[tuple[str, str, str]] = asyncio.Queue()
+
+    srv = StealthServer(
+        SERVER_ALIAS, server_keys[0], PASSPHRASE,
+        rooms=["group"], group_rooms=["group"],
+    )
+
+    async def on_join_request(alias: str, fp: str, room_id: str) -> None:
+        await join_requests.put((alias, fp, room_id))
+
+    srv.on_join_request = on_join_request
+    await srv.start(host="localhost", port=0)
+
+    cli1 = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
+    cli2 = StealthClient("Test Client 2", client2_keys[0], PASSPHRASE)
+
+    try:
+        await cli1.connect(f"ws://localhost:{srv.port}", room_id="group")
+        await asyncio.sleep(0.1)
+        assert len(srv.connected_peers) == 1
+
+        connect_task = asyncio.create_task(
+            cli2.connect(f"ws://localhost:{srv.port}", room_id="group")
+        )
+
+        alias, fp, room = await asyncio.wait_for(join_requests.get(), timeout=WAIT_TIMEOUT)
+        assert alias == "Test Client 2"
+        assert room == "group"
+
+        srv.approve_join("Test Client 2")
+        await asyncio.wait_for(connect_task, timeout=WAIT_TIMEOUT)
+
+        await asyncio.sleep(0.1)
+        assert len(srv.connected_peers) == 2
+    finally:
+        await cli1.disconnect()
+        await cli2.disconnect()
+        await srv.stop()
+
+
+async def test_group_room_denied_raises_protocol_error(
+    server_keys: tuple[str, str],
+    client_keys: tuple[str, str],
+    client2_keys: tuple[str, str],
+) -> None:
+    """A denied peer receives ProtocolError code 4008."""
+    join_requests: asyncio.Queue[tuple[str, str, str]] = asyncio.Queue()
+
+    srv = StealthServer(
+        SERVER_ALIAS, server_keys[0], PASSPHRASE,
+        rooms=["group"], group_rooms=["group"],
+    )
+
+    async def on_join_request(alias: str, fp: str, room_id: str) -> None:
+        await join_requests.put((alias, fp, room_id))
+
+    srv.on_join_request = on_join_request
+    await srv.start(host="localhost", port=0)
+
+    cli1 = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
+    cli2 = StealthClient("Test Client 2", client2_keys[0], PASSPHRASE)
+
+    try:
+        await cli1.connect(f"ws://localhost:{srv.port}", room_id="group")
+        await asyncio.sleep(0.1)
+
+        connect_task = asyncio.create_task(
+            cli2.connect(f"ws://localhost:{srv.port}", room_id="group")
+        )
+
+        await asyncio.wait_for(join_requests.get(), timeout=WAIT_TIMEOUT)
+        srv.deny_join("Test Client 2")
+
+        with pytest.raises(ProtocolError) as exc_info:
+            await asyncio.wait_for(connect_task, timeout=WAIT_TIMEOUT)
+        assert exc_info.value.code == 4008
+    finally:
+        await cli1.disconnect()
+        try:
+            await cli2.disconnect()
+        except Exception:
+            pass
+        await srv.stop()
+
+
+async def test_group_room_messages_forwarded_to_all_peers(
+    server_keys: tuple[str, str],
+    client_keys: tuple[str, str],
+    client2_keys: tuple[str, str],
+) -> None:
+    """Messages in a group room are forwarded to all other peers."""
+    msgs_cli1: asyncio.Queue[str] = asyncio.Queue()
+    msgs_cli2: asyncio.Queue[str] = asyncio.Queue()
+    join_requests: asyncio.Queue[tuple[str, str, str]] = asyncio.Queue()
+
+    srv = StealthServer(
+        SERVER_ALIAS, server_keys[0], PASSPHRASE,
+        rooms=["group"], group_rooms=["group"],
+    )
+
+    async def on_join_request(alias: str, fp: str, room_id: str) -> None:
+        await join_requests.put((alias, fp, room_id))
+
+    srv.on_join_request = on_join_request
+    await srv.start(host="localhost", port=0)
+
+    cli1 = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
+    cli2 = StealthClient("Test Client 2", client2_keys[0], PASSPHRASE)
+
+    async def on_msg1(txt: str) -> None:
+        await msgs_cli1.put(txt)
+
+    async def on_msg2(txt: str) -> None:
+        await msgs_cli2.put(txt)
+
+    cli1.on_message = on_msg1
+    cli2.on_message = on_msg2
+
+    try:
+        await cli1.connect(f"ws://localhost:{srv.port}", room_id="group")
+        await asyncio.sleep(0.1)
+
+        connect_task = asyncio.create_task(
+            cli2.connect(f"ws://localhost:{srv.port}", room_id="group")
+        )
+        await asyncio.wait_for(join_requests.get(), timeout=WAIT_TIMEOUT)
+        srv.approve_join("Test Client 2")
+        await asyncio.wait_for(connect_task, timeout=WAIT_TIMEOUT)
+        await asyncio.sleep(0.1)
+
+        await cli2.send_message("hello from cli2")
+        received = await asyncio.wait_for(msgs_cli1.get(), timeout=WAIT_TIMEOUT)
+        assert received == "hello from cli2"
+
+        await cli1.send_message("hello from cli1")
+        received2 = await asyncio.wait_for(msgs_cli2.get(), timeout=WAIT_TIMEOUT)
+        assert received2 == "hello from cli1"
+    finally:
+        await cli1.disconnect()
+        await cli2.disconnect()
+        await srv.stop()
+
+
+async def test_move_peer_pre_approves_group_room(
+    server_keys: tuple[str, str],
+    client_keys: tuple[str, str],
+    client2_keys: tuple[str, str],
+) -> None:
+    """move_peer pre-approves the peer; they join without an approval prompt."""
+    move_events: asyncio.Queue[str] = asyncio.Queue()
+
+    srv = StealthServer(
+        SERVER_ALIAS, server_keys[0], PASSPHRASE, rooms=["a", "b"]
+    )
+    await srv.start(host="localhost", port=0)
+
+    cli1 = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
+    cli2 = StealthClient("Test Client 2", client2_keys[0], PASSPHRASE)
+
+    async def on_move(room_id: str) -> None:
+        await move_events.put(room_id)
+
+    cli1.on_move = on_move
+
+    try:
+        await cli1.connect(f"ws://localhost:{srv.port}", room_id="a")
+        await cli2.connect(f"ws://localhost:{srv.port}", room_id="b")
+        await asyncio.sleep(0.1)
+
+        await srv.move_peer(CLIENT_ALIAS, "b")
+
+        target = await asyncio.wait_for(move_events.get(), timeout=WAIT_TIMEOUT)
+        assert target == "b"
+    finally:
+        await cli1.disconnect()
+        await cli2.disconnect()
         await srv.stop()

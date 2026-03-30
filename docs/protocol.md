@@ -151,6 +151,7 @@ Cuando una parte recibe un mensaje malformado o no puede procesarlo:
 | 4005   | Timeout en el handshake                            |
 | 4006   | Sala llena (ya hay un peer conectado en esa sala)  |
 | 4007   | Sala no encontrada en este servidor                |
+| 4008   | Solicitud de entrada denegada o expirada (sala de grupo) |
 
 Tras enviar un error de código 4001, la conexión debe cerrarse.
 Los errores 4002–4005 son recuperables; la sesión puede continuar.
@@ -164,7 +165,10 @@ Todo mensaje tiene obligatoriamente el campo `type`. El resto de campos dependen
 | type      | Dirección          | Campos adicionales obligatorios         |
 |-----------|--------------------|-----------------------------------------|
 | hello     | ambas partes       | version, alias, pubkey (+ room en cliente) |
-| message   | emisor → receptor  | id, payload, timestamp                  |
+| message   | emisor → receptor  | id, payload, timestamp (+ sender en reenvíos de grupo) |
+| pending   | servidor → cliente | — (sala de grupo ocupada, esperando aprobación del host) |
+| approved  | servidor → cliente | — (host aprobó la entrada)              |
+| move      | servidor → cliente | room (host solicita cambio de sala)     |
 | bye       | cualquiera         | —                                       |
 | ping      | cualquiera         | —                                       |
 | pong      | respuesta a ping   | —                                       |
@@ -193,3 +197,4 @@ Mensajes con `type` desconocido deben ignorarse silenciosamente (para compatibil
 |---------|------------|--------------------------------|
 | 0.1     | 2026-03    | Borrador inicial               |
 | 0.2     | 2026-03    | Sistema de salas (room): campo room en hello, códigos 4006 y 4007, límite 1 peer/sala |
+| 0.3     | 2026-03    | Salas de grupo: mensajes pending/approved/move, código 4008, aprobación del host |
