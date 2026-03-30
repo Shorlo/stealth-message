@@ -147,7 +147,8 @@ class ChatScreen:
         self._passphrase = passphrase
 
         self._room_ids: list[str] = room_ids if room_ids else ["default"]
-        self._multi_room: bool = len(self._room_ids) > 1
+        # Show room UI whenever the user explicitly named a room (even just one).
+        self._multi_room: bool = self._room_ids != ["default"]
         self._active_room: str = self._room_ids[0]
 
         self._room_states: dict[str, RoomState] = {
@@ -203,8 +204,16 @@ class ChatScreen:
                     )
                 )
             await self._print_queue.put(
-                Text("[dim]  Verify fingerprint out-of-band before trusting.[/dim]")
+                Text.from_markup("[dim]  Verify fingerprint out-of-band before trusting.[/dim]")
             )
+            # Show help in the queue so it appears after the connection banner.
+            help_text = "[dim]  /fp[/dim]   fingerprint   [dim]/quit[/dim]  exit"
+            if self._multi_room:
+                help_text += (
+                    "   [dim]/rooms[/dim]  list rooms"
+                    "   [dim]/switch <room>[/dim]  change room"
+                )
+            await self._print_queue.put(Text.from_markup(help_text))
 
         async def on_message(
             peer_alias: str, plaintext: str, room_id: str
@@ -253,9 +262,7 @@ class ChatScreen:
                 "[dim]Share: [/dim][bold]ws://YOUR_IP:"
                 f"{server.port}[/bold][dim]  (give peer the room name)[/dim]"
             )
-            _print_help(multi_room=True)
-        else:
-            console.print("[dim]Waiting for a peer to connect…[/dim]")
+        console.print("[dim]Waiting for peers to connect…[/dim]")
         console.print(Rule(style="dim"))
         console.print()
 
@@ -388,8 +395,9 @@ class ChatScreen:
                         _print_help(multi_room=self._multi_room)
                         continue
 
-                    if text.lower() == "/rooms" and self._multi_room:
-                        _print_rooms(self._room_states, self._active_room)
+                    if text.lower() == "/rooms":
+                        if self._multi_room:
+                            _print_rooms(self._room_states, self._active_room)
                         continue
 
                     if self._multi_room and (
