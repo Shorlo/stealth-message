@@ -9,9 +9,13 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Changed
+- `__main__.py`: manual de usuario — sustituidos nombres de ejemplo (Shorlo/Pepe/Juan)
+  por nombres genéricos (Alice/Bob/Carol) y sala `sala` por `team`
+
 ### Added
 - **Sistema de salas (rooms)**: el host puede crear múltiples salas independientes
-  (`--rooms pepe,juan`); cada sala admite exactamente un peer simultáneo.
+  (`--rooms bob,carol`); cada sala admite exactamente un peer simultáneo.
   - `network/server.py`: `StealthServer` acepta `rooms: list[str] | None`.
     Nuevo dict `_rooms: dict[room_id, PeerSession]` en lugar del antiguo `_peers`.
     Nuevo método `send_to_room(room_id, plaintext)`.  Firmas de callbacks ampliadas
