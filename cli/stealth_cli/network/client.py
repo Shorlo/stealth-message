@@ -72,6 +72,9 @@ class StealthClient:
         self._recv_task: asyncio.Task[None] | None = None
         self._pong_event: asyncio.Event | None = None
 
+        # Room — set by connect().
+        self._room_id: str = "default"
+
         # Peer state — populated after a successful handshake.
         self._peer_alias: str | None = None
         self._peer_armored_pubkey: str | None = None
@@ -106,21 +109,30 @@ class StealthClient:
             raise RuntimeError("Not connected — call connect() first")
         return self._peer_armored_pubkey
 
+    @property
+    def room_id(self) -> str:
+        """Room the client is connected to."""
+        return self._room_id
+
     # ------------------------------------------------------------------ #
     # Public API                                                           #
     # ------------------------------------------------------------------ #
 
-    async def connect(self, uri: str) -> None:
+    async def connect(self, uri: str, room_id: str = "default") -> None:
         """Connect to a StealthServer, perform the handshake, and start receiving.
 
         Args:
             uri: WebSocket URI, e.g. ``"ws://localhost:8765"``.
+            room_id: Room to join on the server (protocol §1.1).  Defaults to
+                ``"default"``.
 
         Raises:
             TimeoutError: If the handshake is not completed within 10 s.
-            :exc:`~stealth_cli.exceptions.ProtocolError`: On protocol violations.
+            :exc:`~stealth_cli.exceptions.ProtocolError`: On protocol violations
+                including room-full (4006) and room-not-found (4007).
             :exc:`websockets.exceptions.WebSocketException`: On connection failure.
         """
+        self._room_id = room_id[:64] or "default"
         # Disable websockets' built-in ping so our own protocol ping/pong (§3.2)
         # is the only keep-alive in play.
         self._ws = await connect(uri, ping_interval=None)
@@ -213,12 +225,13 @@ class StealthClient:
         """Client-side handshake: send hello → receive server hello."""
         assert self._ws is not None
 
-        # Client sends first (§1.1).
+        # Client sends first (§1.1), including the target room.
         await self._ws.send(
             json.dumps(
                 {
                     "type": "hello",
                     "version": PROTOCOL_VERSION,
+                    "room": self._room_id,
                     "alias": self._alias,
                     "pubkey": base64.urlsafe_b64encode(
                         self._armored_pubkey.encode("utf-8")
@@ -232,6 +245,12 @@ class StealthClient:
             msg: dict[str, Any] = json.loads(raw)
         except (json.JSONDecodeError, TypeError) as exc:
             raise ProtocolError("invalid JSON in server hello", 4002) from exc
+
+        # If the server rejected us (e.g. room full), propagate the error.
+        if msg.get("type") == "error":
+            code = int(msg.get("code") or 4002)
+            reason = str(msg.get("reason") or "server rejected connection")
+            raise ProtocolError(reason, code)
 
         if msg.get("type") != "hello":
             raise ProtocolError(

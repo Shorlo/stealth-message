@@ -9,6 +9,28 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Added
+- **Sistema de salas (rooms)**: el host puede crear múltiples salas independientes
+  (`--rooms pepe,juan`); cada sala admite exactamente un peer simultáneo.
+  - `network/server.py`: `StealthServer` acepta `rooms: list[str] | None`.
+    Nuevo dict `_rooms: dict[room_id, PeerSession]` en lugar del antiguo `_peers`.
+    Nuevo método `send_to_room(room_id, plaintext)`.  Firmas de callbacks ampliadas
+    con `room_id` como tercer parámetro.  Nuevo property `room_peers`.
+    Errores 4006 (sala llena) y 4007 (sala no encontrada).
+  - `network/client.py`: `connect(uri, room_id="default")` envía el campo `room`
+    en el hello.  Nuevo property `room_id`.  Detecta respuestas de error del servidor
+    durante el handshake (4006/4007) y las propaga como `ProtocolError`.
+  - `ui/chat.py`: UI multi-sala — prompt muestra la sala activa (`[Shorlo@pepe]`),
+    mensajes etiquetados con `[sala]`, comandos `/switch <room>`, `/rooms`, `/next`.
+    `ChatScreen` acepta `room_ids: list[str]`.  `run_chat` acepta `rooms` y `room`.
+  - `__main__.py`: flags `--rooms` (host) y `--room` (join); `_prompt_mode` pregunta
+    salas de forma interactiva.
+  - `docs/protocol.md`: campo `room` en hello del cliente, códigos 4006 y 4007,
+    versión 0.2 del protocolo.
+  - `tests/test_network.py`: 7 tests nuevos — room full (4006), room not found (4007),
+    aislamiento entre salas, dos peers en salas distintas, `send_to_room` vacía,
+    `room_peers`, servidor abierto acepta cualquier sala.
+
 ### Fixed
 - `__main__.py`: suprimidos warnings de pgpy que aparecían en pantalla durante el chat
   (compresión, self-sigs, revocación, flags, TripleDES) — son limitaciones internas de

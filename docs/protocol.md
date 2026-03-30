@@ -28,12 +28,13 @@ identidades. El cliente envía primero:
 {
   "type": "hello",
   "version": "1",
+  "room": "<nombre de sala, máx. 64 chars, opcional — por defecto \"default\">",
   "alias": "<nombre visible, máx. 64 chars, UTF-8>",
   "pubkey": "<clave pública PGP en formato ASCII-armored, Base64 URL-safe>"
 }
 ```
 
-El servidor responde con el mismo formato:
+El servidor responde con el mismo formato (sin `room`):
 
 ```json
 {
@@ -46,6 +47,12 @@ El servidor responde con el mismo formato:
 
 **Reglas:**
 - Si `version` no es `"1"`, la parte receptora debe cerrar la conexión con código 4001.
+- El campo `room` identifica la sala de chat a la que el cliente quiere conectarse.
+  Es opcional; si se omite, se usa `"default"`.
+- Cada sala admite exactamente **un peer simultáneo**. Si la sala ya está ocupada,
+  el servidor rechaza con código 4006 antes de enviar su propio hello.
+- Si el servidor tiene salas predefinidas y el room solicitado no existe,
+  rechaza con código 4007.
 - El `alias` es solo para mostrar en la UI. No tiene valor criptográfico.
 - La autenticidad del interlocutor se verifica mediante la huella (fingerprint) de su clave
   pública, que debe mostrarse al usuario para verificación manual fuera de banda.
@@ -142,6 +149,8 @@ Cuando una parte recibe un mensaje malformado o no puede procesarlo:
 | 4003   | Firma PGP inválida                                 |
 | 4004   | Error de descifrado (clave incorrecta u otro)      |
 | 4005   | Timeout en el handshake                            |
+| 4006   | Sala llena (ya hay un peer conectado en esa sala)  |
+| 4007   | Sala no encontrada en este servidor                |
 
 Tras enviar un error de código 4001, la conexión debe cerrarse.
 Los errores 4002–4005 son recuperables; la sesión puede continuar.
@@ -154,7 +163,7 @@ Todo mensaje tiene obligatoriamente el campo `type`. El resto de campos dependen
 
 | type      | Dirección          | Campos adicionales obligatorios         |
 |-----------|--------------------|-----------------------------------------|
-| hello     | ambas partes       | version, alias, pubkey                  |
+| hello     | ambas partes       | version, alias, pubkey (+ room en cliente) |
 | message   | emisor → receptor  | id, payload, timestamp                  |
 | bye       | cualquiera         | —                                       |
 | ping      | cualquiera         | —                                       |
@@ -183,3 +192,4 @@ Mensajes con `type` desconocido deben ignorarse silenciosamente (para compatibil
 | Versión | Fecha      | Cambios                        |
 |---------|------------|--------------------------------|
 | 0.1     | 2026-03    | Borrador inicial               |
+| 0.2     | 2026-03    | Sistema de salas (room): campo room en hello, códigos 4006 y 4007, límite 1 peer/sala |

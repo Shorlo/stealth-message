@@ -20,6 +20,7 @@ import pytest
 import websockets
 
 from stealth_cli.crypto.keys import generate_keypair, get_fingerprint, load_public_key
+from stealth_cli.exceptions import ProtocolError
 from stealth_cli.network.client import StealthClient
 from stealth_cli.network.server import StealthServer
 
@@ -48,6 +49,11 @@ def client_keys() -> tuple[str, str]:
     return generate_keypair(CLIENT_ALIAS, PASSPHRASE)
 
 
+@pytest.fixture(scope="session")
+def client2_keys() -> tuple[str, str]:
+    return generate_keypair("Test Client 2", PASSPHRASE)
+
+
 # ---------------------------------------------------------------------------
 # Per-test server fixture with event queues
 # ---------------------------------------------------------------------------
@@ -57,18 +63,18 @@ def client_keys() -> tuple[str, str]:
 async def server(server_keys: tuple[str, str]) -> asyncio.AsyncGenerator:
     """Running StealthServer with asyncio.Queue inboxes for callbacks."""
     msgs: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
-    connected: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+    connected: asyncio.Queue[tuple[str, str, str]] = asyncio.Queue()
     disconnected: asyncio.Queue[str] = asyncio.Queue()
 
     srv = StealthServer(SERVER_ALIAS, server_keys[0], PASSPHRASE)
 
-    async def on_msg(alias: str, txt: str) -> None:
+    async def on_msg(alias: str, txt: str, room_id: str) -> None:
         await msgs.put((alias, txt))
 
-    async def on_connected(alias: str, fp: str) -> None:
-        await connected.put((alias, fp))
+    async def on_connected(alias: str, fp: str, room_id: str) -> None:
+        await connected.put((alias, fp, room_id))
 
-    async def on_disconnected(alias: str) -> None:
+    async def on_disconnected(alias: str, room_id: str) -> None:
         await disconnected.put(alias)
 
     srv.on_message = on_msg
@@ -159,12 +165,12 @@ async def test_handshake_server_received_correct_client_fingerprint(
     server_keys: tuple[str, str], client_keys: tuple[str, str]
 ) -> None:
     """The server's on_peer_connected callback must receive the client's real fingerprint."""
-    connected: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+    connected: asyncio.Queue[tuple[str, str, str]] = asyncio.Queue()
 
     srv = StealthServer(SERVER_ALIAS, server_keys[0], PASSPHRASE)
 
-    async def on_connected(alias: str, fp: str) -> None:
-        await connected.put((alias, fp))
+    async def on_connected(alias: str, fp: str, room_id: str) -> None:
+        await connected.put((alias, fp, room_id))
 
     srv.on_peer_connected = on_connected
     await srv.start(host="localhost", port=0)
@@ -173,14 +179,23 @@ async def test_handshake_server_received_correct_client_fingerprint(
         cli = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
         await cli.connect(f"ws://localhost:{srv.port}")
 
-        alias, received_fp = await asyncio.wait_for(connected.get(), timeout=WAIT_TIMEOUT)
+        alias, received_fp, room_id = await asyncio.wait_for(
+            connected.get(), timeout=WAIT_TIMEOUT
+        )
 
         expected_fp = get_fingerprint(client_keys[1])
         assert alias == CLIENT_ALIAS
         assert received_fp == expected_fp
+        assert room_id == "default"
     finally:
         await cli.disconnect()
         await srv.stop()
+
+
+async def test_handshake_client_room_defaults_to_default(
+    client: StealthClient,
+) -> None:
+    assert client.room_id == "default"
 
 
 # ---------------------------------------------------------------------------
@@ -357,8 +372,6 @@ async def test_unknown_message_type_is_ignored(
     """An unknown 'type' must be silently ignored (§5) — no disconnect."""
     assert client._ws is not None
     await client._ws.send(json.dumps({"type": "future_unknown_type", "data": 42}))
-    # Give the server time to process it and send something back if it were
-    # going to — it shouldn't disconnect or respond.
     await asyncio.sleep(0.1)
     assert CLIENT_ALIAS in server.connected_peers
 
@@ -367,19 +380,8 @@ async def test_malformed_json_after_handshake_returns_error(
     server: StealthServer, client: StealthClient
 ) -> None:
     """Malformed JSON after handshake → error 4002 (recoverable)."""
-    errors: asyncio.Queue[dict] = asyncio.Queue()
-
-    original_dispatch = client._dispatch
-
-    async def capture_errors(raw):
-        await original_dispatch(raw)
-
-    # Send malformed JSON directly through the WebSocket.
     assert client._ws is not None
     await client._ws.send("{ bad json }")
-
-    # Wait briefly; if the server sends an error, the client's receive loop will
-    # call on_error (if set) or log it. We verify the connection stays alive.
     await asyncio.sleep(0.2)
     assert CLIENT_ALIAS in server.connected_peers
 
@@ -389,3 +391,185 @@ async def test_server_send_to_nonexistent_peer_raises(
 ) -> None:
     with pytest.raises(ValueError, match="nonexistent"):
         await server.send_to("nonexistent", "hello")
+
+
+# ---------------------------------------------------------------------------
+# §1.1 Room system
+# ---------------------------------------------------------------------------
+
+
+async def test_room_full_rejects_second_peer(
+    server_keys: tuple[str, str], client_keys: tuple[str, str],
+    client2_keys: tuple[str, str],
+) -> None:
+    """A second client trying to join an occupied room must receive error 4006."""
+    srv = StealthServer(SERVER_ALIAS, server_keys[0], PASSPHRASE)
+    await srv.start(host="localhost", port=0)
+
+    cli1 = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
+    cli2 = StealthClient("Test Client 2", client2_keys[0], PASSPHRASE)
+
+    try:
+        await cli1.connect(f"ws://localhost:{srv.port}", room_id="shared")
+        # Wait briefly so the server registers cli1.
+        await asyncio.sleep(0.1)
+
+        with pytest.raises(ProtocolError) as exc_info:
+            await cli2.connect(f"ws://localhost:{srv.port}", room_id="shared")
+        assert exc_info.value.code == 4006
+    finally:
+        await cli1.disconnect()
+        try:
+            await cli2.disconnect()
+        except Exception:
+            pass
+        await srv.stop()
+
+
+async def test_different_rooms_are_independent(
+    server_keys: tuple[str, str],
+    client_keys: tuple[str, str],
+    client2_keys: tuple[str, str],
+) -> None:
+    """Messages sent to room A must not be visible to a peer in room B."""
+    msgs_cli1: asyncio.Queue[str] = asyncio.Queue()
+    msgs_cli2: asyncio.Queue[str] = asyncio.Queue()
+
+    srv = StealthServer(
+        SERVER_ALIAS, server_keys[0], PASSPHRASE, rooms=["pepe", "juan"]
+    )
+    await srv.start(host="localhost", port=0)
+
+    cli1 = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
+    cli2 = StealthClient("Test Client 2", client2_keys[0], PASSPHRASE)
+
+    async def on_msg1(txt: str) -> None:
+        await msgs_cli1.put(txt)
+
+    async def on_msg2(txt: str) -> None:
+        await msgs_cli2.put(txt)
+
+    cli1.on_message = on_msg1
+    cli2.on_message = on_msg2
+
+    try:
+        await cli1.connect(f"ws://localhost:{srv.port}", room_id="pepe")
+        await cli2.connect(f"ws://localhost:{srv.port}", room_id="juan")
+        await asyncio.sleep(0.1)
+
+        # Send to room "pepe" only.
+        await srv.send_to_room("pepe", "message for pepe only")
+
+        # cli1 (pepe) receives it.
+        msg = await asyncio.wait_for(msgs_cli1.get(), timeout=WAIT_TIMEOUT)
+        assert msg == "message for pepe only"
+
+        # cli2 (juan) must NOT receive it.
+        assert msgs_cli2.empty()
+    finally:
+        await cli1.disconnect()
+        await cli2.disconnect()
+        await srv.stop()
+
+
+async def test_two_peers_in_different_rooms_both_connected(
+    server_keys: tuple[str, str],
+    client_keys: tuple[str, str],
+    client2_keys: tuple[str, str],
+) -> None:
+    """Server with two rooms can hold two peers simultaneously."""
+    srv = StealthServer(
+        SERVER_ALIAS, server_keys[0], PASSPHRASE, rooms=["a", "b"]
+    )
+    await srv.start(host="localhost", port=0)
+
+    cli1 = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
+    cli2 = StealthClient("Test Client 2", client2_keys[0], PASSPHRASE)
+
+    try:
+        await cli1.connect(f"ws://localhost:{srv.port}", room_id="a")
+        await cli2.connect(f"ws://localhost:{srv.port}", room_id="b")
+        await asyncio.sleep(0.1)
+
+        assert len(srv.connected_peers) == 2
+        assert CLIENT_ALIAS in srv.connected_peers
+        assert "Test Client 2" in srv.connected_peers
+    finally:
+        await cli1.disconnect()
+        await cli2.disconnect()
+        await srv.stop()
+
+
+async def test_room_not_found_returns_error_4007(
+    server_keys: tuple[str, str], client_keys: tuple[str, str]
+) -> None:
+    """Connecting to a non-existent room on a server with fixed rooms → 4007."""
+    srv = StealthServer(
+        SERVER_ALIAS, server_keys[0], PASSPHRASE, rooms=["only-room"]
+    )
+    await srv.start(host="localhost", port=0)
+
+    cli = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
+    try:
+        with pytest.raises(ProtocolError) as exc_info:
+            await cli.connect(f"ws://localhost:{srv.port}", room_id="wrong-room")
+        assert exc_info.value.code == 4007
+    finally:
+        try:
+            await cli.disconnect()
+        except Exception:
+            pass
+        await srv.stop()
+
+
+async def test_send_to_room_raises_when_room_empty(
+    server_keys: tuple[str, str],
+) -> None:
+    """send_to_room raises ValueError if no peer is in the room."""
+    srv = StealthServer(SERVER_ALIAS, server_keys[0], PASSPHRASE, rooms=["pepe"])
+    await srv.start(host="localhost", port=0)
+    try:
+        with pytest.raises(ValueError, match="pepe"):
+            await srv.send_to_room("pepe", "nobody home")
+    finally:
+        await srv.stop()
+
+
+async def test_room_peers_property(
+    server_keys: tuple[str, str], client_keys: tuple[str, str]
+) -> None:
+    """room_peers returns all rooms with connected/empty status."""
+    srv = StealthServer(
+        SERVER_ALIAS, server_keys[0], PASSPHRASE, rooms=["a", "b"]
+    )
+    await srv.start(host="localhost", port=0)
+
+    cli = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
+    try:
+        await cli.connect(f"ws://localhost:{srv.port}", room_id="a")
+        await asyncio.sleep(0.1)
+
+        peers = srv.room_peers
+        assert peers["a"] == CLIENT_ALIAS
+        assert peers["b"] is None
+    finally:
+        await cli.disconnect()
+        await srv.stop()
+
+
+async def test_open_server_accepts_any_room(
+    server_keys: tuple[str, str], client_keys: tuple[str, str]
+) -> None:
+    """A server created without fixed rooms accepts any room name."""
+    srv = StealthServer(SERVER_ALIAS, server_keys[0], PASSPHRASE)  # no rooms arg
+    await srv.start(host="localhost", port=0)
+
+    cli = StealthClient(CLIENT_ALIAS, client_keys[0], PASSPHRASE)
+    try:
+        await cli.connect(f"ws://localhost:{srv.port}", room_id="arbitrary-name")
+        await asyncio.sleep(0.1)
+        assert CLIENT_ALIAS in srv.connected_peers
+        assert cli.room_id == "arbitrary-name"
+    finally:
+        await cli.disconnect()
+        await srv.stop()
