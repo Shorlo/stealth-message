@@ -282,13 +282,13 @@ def _print_manual() -> None:
     manual = """\
 ## How it works
 
-Two people communicate directly, machine to machine, over a WebSocket
+Participants communicate directly, machine to machine, over a WebSocket
 connection. Every message is encrypted with the recipient's PGP public key
 and signed with the sender's private key before leaving the machine.
 No server ever sees the content.
 
-One participant acts as **host** (starts the server) and the other **joins**.
-Both roles send and receive messages equally once connected.
+One participant acts as **host** (starts the server) and the others **join**.
+All roles send and receive messages equally once connected.
 
 ---
 
@@ -302,7 +302,7 @@ python -m stealth_cli
 
 The wizard asks for:
 
-- **Alias** — your display name, visible to the other participant (max 64 chars).
+- **Alias** — your display name, visible to peers (max 64 chars).
 - **Passphrase** — protects your private key on disk (min 8 chars, asked twice).
 
 An RSA-4096 key pair is then generated and saved to disk:
@@ -310,26 +310,33 @@ An RSA-4096 key pair is then generated and saved to disk:
 - **macOS:** `~/Library/Application Support/stealth-message/`
 - **Linux / WSL:** `~/.config/stealth-message/`
 
-Your **fingerprint** is shown at the end. Share it with your peer over an
+Your **fingerprint** is shown at the end. Share it with your peers over an
 independent channel (in person, by phone) so they can verify your identity.
 
 ---
 
 ## Starting a session
 
-### Alice — host mode
+### Alice — host mode (single 1-on-1 room)
 
 ```
 python -m stealth_cli --host           # default port 8765
 python -m stealth_cli --host 9000      # custom port
 ```
 
-Alice's terminal shows her public IP and port to give to Bob.
+### Alice — host mode (multiple rooms)
+
+```
+python -m stealth_cli --host --rooms pepe,juan,sala-grupo
+```
+
+This creates three independent rooms. Peers connect to a specific room by name.
 
 ### Bob — join mode
 
 ```
 python -m stealth_cli --join ws://ALICE_IP:8765
+python -m stealth_cli --join ws://ALICE_IP:8765 --room pepe   # named room
 ```
 
 ### Interactive mode (no flags)
@@ -338,7 +345,40 @@ python -m stealth_cli --join ws://ALICE_IP:8765
 python -m stealth_cli
 ```
 
-The program asks whether to host or join and prompts for the address.
+The program asks whether to host or join, prompts for port/URI, and asks
+for room names if hosting.
+
+---
+
+## Room types
+
+### 1-on-1 rooms (default)
+
+Each room admits exactly **one peer**. A second peer trying to connect gets
+error 4006 (room occupied).
+
+### Group rooms
+
+Group rooms admit **multiple peers** with host approval:
+
+```
+[Shorlo@room1] /group chat-grupal      # convert a room to group mode
+[Shorlo@room1] /move Pepe chat-grupal  # invite Pepe — pre-approved, no prompt
+```
+
+When a new peer tries to join a group room that already has someone:
+
+```
+  ⚠  Join request: Juan wants to enter room chat-grupal
+     FP: XXXX XXXX XXXX ...
+     /allow Juan  or  /deny Juan
+```
+
+- `/allow Juan` → Juan enters the room
+- `/deny Juan` → Juan is rejected
+
+In group rooms, messages sent by any peer are forwarded to **all** other peers
+in that room (peer-to-peer relay through the host).
 
 ---
 
@@ -348,10 +388,9 @@ The host needs a publicly reachable IP. Two options:
 
 **Option A — Port forwarding (no third-party software)**
 
-1. Find your public IP:
-   `curl ifconfig.me`
+1. Find your public IP: `curl ifconfig.me`
 2. In your router: NAT → Port Forwarding → TCP port 8765 → your local IP.
-3. Give Bob: `ws://YOUR_PUBLIC_IP:8765`
+3. Give peers: `ws://YOUR_PUBLIC_IP:8765`
 4. Close the port forwarding rule when you finish.
 
 > If port forwarding does not work, your ISP may use CG-NAT.
@@ -360,31 +399,106 @@ The host needs a publicly reachable IP. Two options:
 
 **Option B — Tailscale (no port forwarding)**
 
-Tailscale creates a private WireGuard tunnel directly between the two
-machines. No router configuration needed.
+Tailscale creates a private WireGuard tunnel directly between machines.
+No router configuration needed.
 
-1. Both install Tailscale (free for personal use).
-2. Alice shares her device with Bob from the Tailscale web console
-   ("Share node" — Bob only sees Alice's machine, not her whole network).
+1. All participants install Tailscale (free for personal use).
+2. Alice shares her device with peers from the Tailscale web console
+   ("Share node" — they only see Alice's machine, not her whole network).
 3. Run `tailscale status` to see each other's `100.x.x.x` addresses.
 4. Alice: `python -m stealth_cli --host`
-5. Bob: `python -m stealth_cli --join ws://ALICE_TAILSCALE_IP:8765`
+5. Others: `python -m stealth_cli --join ws://ALICE_TAILSCALE_IP:8765 --room <name>`
 6. Revoke the share when done.
 
 > With Tailscale, messages travel encrypted by WireGuard AND by PGP —
-> two independent layers. Even if WireGuard were compromised, the PGP
-> content remains unreadable.
+> two independent layers.
 
 ---
 
-## Chat commands
+## Chat commands — all users
 
 | Command | Action |
 |---------|--------|
-| `/fp`   | Show the peer's PGP fingerprint |
+| `/fp` | Show the current peer's PGP fingerprint |
+| `/rooms` | List all rooms and their connection status |
+| `/switch <room>` | Change active room (or reconnect to a different room) |
 | `/help` | Show available commands |
 | `/quit` or `/exit` or `/q` | Close the session cleanly |
 | `Ctrl+C` | Also closes the session |
+
+## Chat commands — host only
+
+| Command | Action |
+|---------|--------|
+| `/new <room>` | Create a new 1-on-1 room at runtime |
+| `/group <room>` | Convert a room to group mode (multiple peers) |
+| `/move <alias> <room>` | Move a peer to a different room (pre-approved) |
+| `/allow <alias>` | Approve a pending join request |
+| `/deny <alias>` | Deny a pending join request |
+| `/pending` | List all pending join requests |
+
+---
+
+## Example: Shorlo hosts, Pepe and Juan join separate 1-on-1 rooms
+
+**Shorlo (host):**
+```
+python -m stealth_cli --host --rooms pepe,juan
+```
+
+**Pepe:**
+```
+python -m stealth_cli --join ws://SHORLO_IP:8765 --room pepe
+```
+
+**Juan:**
+```
+python -m stealth_cli --join ws://SHORLO_IP:8765 --room juan
+```
+
+Shorlo uses `/switch pepe` and `/switch juan` to alternate between conversations.
+Neither Pepe nor Juan can see each other's messages.
+
+---
+
+## Example: Shorlo hosts a group room with Pepe and Juan
+
+**Shorlo (host):**
+```
+python -m stealth_cli --host --rooms sala
+[Shorlo@sala] /group sala           # make it a group room
+```
+
+**Pepe:**
+```
+python -m stealth_cli --join ws://SHORLO_IP:8765 --room sala
+  ✓ Connected to Shorlo  [room: sala]
+```
+
+**Juan** (joins later):
+```
+python -m stealth_cli --join ws://SHORLO_IP:8765 --room sala
+  ⏳ Waiting for host to approve your entry into room sala…
+```
+
+**Shorlo sees:**
+```
+  ⚠  Join request: Juan wants to enter room sala
+     /allow Juan  or  /deny Juan
+
+[Shorlo@sala] /allow Juan
+✓ Join approved for Juan
+```
+
+Now Shorlo, Pepe and Juan are all in the same room. Any message sent by
+any of them reaches all the others.
+
+Alternatively, Shorlo can move Juan directly without an approval prompt:
+```
+[Shorlo@pepe] /move Juan sala
+↪ Asking Juan to move to room sala…
+```
+Juan's client switches to `sala` automatically.
 
 ---
 
@@ -393,8 +507,8 @@ machines. No router configuration needed.
 After connecting, both sides see the peer's alias and fingerprint:
 
 ```
-  ✓ Connected to Bob
-    Fingerprint: B2C3 D4E5 F678 90AB CDEF 1234 5678 90AB CDEF 1234
+  ✓ Connected to Shorlo  [room: pepe]
+    Fingerprint: F7B3 E55E EA71 1A09 C6C5 0BB7 BA84 DD16 8A77 AA9A
 ```
 
 **Always verify the fingerprint over an independent channel before trusting
@@ -409,6 +523,9 @@ If they do not, disconnect immediately.
 |----------|-----------|
 | Message confidentiality | Only the recipient can decrypt (RSA-4096 + AES-256) |
 | Message authenticity | Every message is signed; invalid signatures are rejected |
+| Group room relay | Messages are re-encrypted by the host for each recipient |
+| Room isolation | Peers in different rooms cannot read each other's messages |
+| Access control | Group rooms require explicit host approval for each new peer |
 | Forward secrecy | Not yet implemented (planned for protocol v2) |
 | Private key storage | Disk-encrypted with your passphrase (AES-256) |
 | Passphrase | Never written to disk, only held in memory during the session |
@@ -435,7 +552,9 @@ A wrong passphrase exits immediately without loading any data.
 | Flag | Description |
 |------|-------------|
 | `--host [PORT]` | Host a session on PORT (default 8765) |
+| `--rooms ROOMS` | Comma-separated room names (host mode) |
 | `--join URI` | Join a session at ws://host:port |
+| `--room ROOM` | Room to join (join mode, default: "default") |
 | `--manual` | Show this manual |
 | `--debug` | Enable verbose debug logging |
 | `--help` | Show short usage summary |
