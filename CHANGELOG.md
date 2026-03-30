@@ -43,8 +43,8 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 - `network/server.py`: `_allowed_rooms` cambiado de `frozenset` a `set` para mutabilidad
 - `ui/chat.py`: `/rooms` imprimía `[dim]waiting for peer…[/dim]` literal — `_print_rooms`
   usaba `Text.assemble()` que no parsea markup; reescrito con `console.print()` y markup
-- `ui/chat.py`: los mensajes propios aparecían duplicados — el prompt ya los deja visibles
-  en el terminal; eliminado `_print_outgoing` y su llamada en el input loop
+- `ui/chat.py`: la línea raw del prompt se borra con escape ANSI `\x1b[1A\x1b[2K`
+  antes de imprimir el mensaje propio formateado con hora y sala; restaurado `_print_outgoing`
 
 ### Added
 - `network/server.py`: método `add_room(room_id)` — añade una sala en caliente
