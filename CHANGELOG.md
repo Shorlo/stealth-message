@@ -47,6 +47,22 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
   antes de imprimir el mensaje propio formateado con hora y sala; restaurado `_print_outgoing`
 
 ### Added
+- **Salas de grupo (group rooms)**: múltiples peers por sala con aprobación del host
+  - `network/server.py`: `StealthServer(group_rooms=[...])`, `make_group_room()`,
+    `approve_join()`, `deny_join()`, `pending_requests`, `move_peer(alias, room)`.
+    Nuevo callback `on_join_request(alias, fp, room_id)`. Mensajes `pending`, `approved`,
+    `move`. Reenvío automático entre peers del mismo grupo. Código de error 4008.
+  - `network/client.py`: `_approval_loop` — bloquea `connect()` hasta que el host
+    aprueba o deniega. Callbacks `on_pending`, `on_approved`, `on_move`.
+  - `ui/chat.py`: host recibe notificación de solicitud de entrada con fingerprint.
+    Comandos `/allow <alias>`, `/deny <alias>`, `/group <room>`, `/move <alias> <room>`,
+    `/pending`. Cliente muestra "Waiting for host approval…" y "Approved!" automáticamente.
+    `/move` del host desencadena `_switch_join_room` automático en el cliente.
+  - `docs/protocol.md`: mensajes `pending`, `approved`, `move`; código 4008; versión 0.3.
+  - `tests/test_network.py`: 4 tests nuevos — aprobación, denegación (4008), reenvío
+    de mensajes en grupo, `move_peer` pre-aprueba (64/64 tests pasando).
+
+### Added
 - `network/server.py`: método `add_room(room_id)` — añade una sala en caliente
 - `ui/chat.py`: `/switch <room>` en modo join — desconecta del room actual y conecta
   al nuevo; si el room está lleno (4006) muestra "Room already occupied" y reconecta

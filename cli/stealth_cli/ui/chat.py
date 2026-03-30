@@ -79,9 +79,13 @@ class RoomState:
     """Runtime state for one chat room."""
 
     room_id: str
-    peer_alias: Optional[str] = None
-    peer_fingerprint: Optional[str] = None
+    peer_alias: Optional[str] = None        # first/only peer (1:1 rooms)
+    peer_fingerprint: Optional[str] = None  # first/only peer (1:1 rooms)
     connected: bool = False
+    is_group: bool = False
+    # Group rooms may have multiple peers.
+    peer_aliases: Optional[list[str]] = None
+    peer_fingerprints: Optional[dict[str, str]] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -183,9 +187,16 @@ class ChatScreen:
         async def on_connected(peer_alias: str, fingerprint: str, room_id: str) -> None:
             state = self._room_states.get(room_id)
             if state:
+                state.connected = True
                 state.peer_alias = peer_alias
                 state.peer_fingerprint = fingerprint
-                state.connected = True
+                if state.peer_aliases is None:
+                    state.peer_aliases = []
+                if peer_alias not in state.peer_aliases:
+                    state.peer_aliases.append(peer_alias)
+                if state.peer_fingerprints is None:
+                    state.peer_fingerprints = {}
+                state.peer_fingerprints[peer_alias] = fingerprint
             await self._print_queue.put(
                 Text.assemble(
                     ("  ✓ ", "bold green"),
@@ -195,45 +206,36 @@ class ChatScreen:
                 )
             )
             await self._print_queue.put(
-                Text.assemble(
-                    ("    Fingerprint: ", "dim"),
-                    (fingerprint, "yellow"),
-                )
+                Text.assemble(("    Fingerprint: ", "dim"), (fingerprint, "yellow"))
             )
-            if self._multi_room:
-                if room_id != self._active_room:
-                    await self._print_queue.put(
-                        Text.from_markup(
-                            f"    [dim]Type /switch {room_id} to chat in this room[/dim]"
-                        )
+            if self._multi_room and room_id != self._active_room:
+                await self._print_queue.put(
+                    Text.from_markup(
+                        f"    [dim]Type /switch {room_id} to chat in this room[/dim]"
                     )
-                else:
-                    await self._print_queue.put(
-                        Text.from_markup("    [dim]This is your active room.[/dim]")
-                    )
+                )
             await self._print_queue.put(
                 Text.from_markup("[dim]  Verify fingerprint out-of-band before trusting.[/dim]")
             )
-            # Show help in the queue so it appears after the connection banner.
             help_text = (
                 "[dim]  /fp[/dim]   fingerprint   [dim]/quit[/dim]  exit"
                 "   [dim]/rooms[/dim]  list rooms"
                 "   [dim]/switch <room>[/dim]  change room"
                 "   [dim]/new <room>[/dim]  create room"
+                "   [dim]/group <room>[/dim]  make group room"
+                "   [dim]/move <alias> <room>[/dim]  move peer"
             )
             await self._print_queue.put(Text.from_markup(help_text))
 
-        async def on_message(
-            peer_alias: str, plaintext: str, room_id: str
-        ) -> None:
+        async def on_message(peer_alias: str, plaintext: str, room_id: str) -> None:
             await self._enqueue_incoming(peer_alias, plaintext, room_id)
 
         async def on_disconnected(peer_alias: str, room_id: str) -> None:
             state = self._room_states.get(room_id)
-            if state:
-                state.connected = False
-                state.peer_alias = None
-                state.peer_fingerprint = None
+            if state and state.peer_aliases:
+                state.peer_aliases = [a for a in state.peer_aliases if a != peer_alias]
+                if not state.peer_aliases:
+                    state.connected = False
             await self._print_queue.put(
                 Text.assemble(
                     ("  ✗ ", "bold red"),
@@ -241,19 +243,29 @@ class ChatScreen:
                     (f"{peer_alias} disconnected", "dim"),
                 )
             )
-            # In single-room mode, stop the loop when the peer leaves.
             if not self._multi_room:
                 self._stop_event.set()
+
+        async def on_join_request(peer_alias: str, fingerprint: str, room_id: str) -> None:
+            await self._print_queue.put(
+                Text.from_markup(
+                    f"\n[bold yellow]  ⚠  Join request:[/bold yellow]"
+                    f" [bold magenta]{peer_alias}[/bold magenta]"
+                    f" wants to enter room [bold cyan]{room_id}[/bold cyan]\n"
+                    f"  FP: [yellow]{fingerprint}[/yellow]\n"
+                    f"  [dim]/allow {peer_alias}[/dim]  or  "
+                    f"[dim]/deny {peer_alias}[/dim]"
+                )
+            )
 
         server.on_peer_connected = on_connected
         server.on_message = on_message
         server.on_peer_disconnected = on_disconnected
+        server.on_join_request = on_join_request
 
-        # Build send closures for every room before entering the loop.
         def _make_send(rid: str) -> Callable[[str], object]:
             async def _send(text: str) -> None:
                 await server.send_to_room(rid, text)
-
             return _send
 
         for rid in self._room_ids:
@@ -301,15 +313,41 @@ class ChatScreen:
 
         async def on_disconnected() -> None:
             await self._print_queue.put(
-                Text.assemble(
-                    ("  ✗ ", "bold red"),
-                    ("Connection closed by server", "dim"),
-                )
+                Text.assemble(("  ✗ ", "bold red"), ("Connection closed by server", "dim"))
             )
             self._stop_event.set()
 
+        async def on_pending() -> None:
+            await self._print_queue.put(
+                Text.from_markup(
+                    f"[bold yellow]  ⏳ Waiting for host to approve your entry"
+                    f" into room [bold cyan]{room_id}[/bold cyan]…[/bold yellow]"
+                )
+            )
+
+        async def on_approved() -> None:
+            await self._print_queue.put(
+                Text.from_markup(
+                    f"[bold green]  ✓ Host approved your entry into room "
+                    f"[bold cyan]{room_id}[/bold cyan].[/bold green]"
+                )
+            )
+
+        async def on_move(target_room: str) -> None:
+            await self._print_queue.put(
+                Text.from_markup(
+                    f"[bold cyan]  ↪ Host is moving you to room "
+                    f"[bold]{target_room}[/bold]…[/bold cyan]"
+                )
+            )
+            # Switch to the new room automatically.
+            await self._switch_join_room(target_room)
+
         client.on_message = on_message
         client.on_disconnected = on_disconnected
+        client.on_pending = on_pending
+        client.on_approved = on_approved
+        client.on_move = on_move
 
         _print_header()
         console.print(f"[cyan]Connecting to[/cyan] [bold]{uri}[/bold]")
@@ -481,6 +519,102 @@ class ChatScreen:
                                 )
                         continue
 
+                    # Host-only commands (/allow, /deny, /group, /move)
+                    if self._server is not None:
+                        low = text.lower()
+
+                        if low.startswith("/allow "):
+                            alias = text.split(None, 1)[1].strip()
+                            try:
+                                self._server.approve_join(alias)
+                                console.print(
+                                    f"[green]✓[/green] Join approved for [bold magenta]{alias}[/bold magenta]"
+                                )
+                            except ValueError as exc:
+                                console.print(f"[red]{exc}[/red]")
+                            continue
+
+                        if low.startswith("/deny "):
+                            alias = text.split(None, 1)[1].strip()
+                            try:
+                                self._server.deny_join(alias)
+                                console.print(
+                                    f"[red]✗[/red] Join denied for [bold magenta]{alias}[/bold magenta]"
+                                )
+                            except ValueError as exc:
+                                console.print(f"[red]{exc}[/red]")
+                            continue
+
+                        if low.startswith("/group "):
+                            room_name = text.split(None, 1)[1].strip()
+                            if not room_name:
+                                console.print("[red]Usage:[/red] /group <room-name>")
+                            else:
+                                self._server.make_group_room(room_name)
+                                if room_name not in self._room_states:
+                                    self._room_states[room_name] = RoomState(
+                                        room_id=room_name, is_group=True
+                                    )
+                                    self._room_ids.append(room_name)
+
+                                    def _make_send_g(rid: str) -> Callable[[str], object]:
+                                        async def _s(t: str) -> None:
+                                            await self._server.send_to_room(rid, t)  # type: ignore[union-attr]
+                                        return _s
+
+                                    self._send_fns[room_name] = _make_send_g(room_name)
+                                else:
+                                    self._room_states[room_name].is_group = True
+                                if not self._multi_room:
+                                    self._multi_room = True
+                                console.print(
+                                    f"[green]✓[/green] [bold]{room_name}[/bold] is now a group room. "
+                                    f"Use [bold]/move <alias> {room_name}[/bold] to invite peers."
+                                )
+                            continue
+
+                        if low.startswith("/move "):
+                            parts = text.split(None, 2)
+                            if len(parts) < 3:
+                                console.print("[red]Usage:[/red] /move <alias> <room>")
+                            else:
+                                m_alias, m_room = parts[1].strip(), parts[2].strip()
+                                try:
+                                    await self._server.move_peer(m_alias, m_room)
+                                    # Ensure UI knows about the target room.
+                                    if m_room not in self._room_states:
+                                        self._room_states[m_room] = RoomState(room_id=m_room, is_group=True)
+                                        self._room_ids.append(m_room)
+
+                                        def _make_send_m(rid: str) -> Callable[[str], object]:
+                                            async def _s(t: str) -> None:
+                                                await self._server.send_to_room(rid, t)  # type: ignore[union-attr]
+                                            return _s
+
+                                        self._send_fns[m_room] = _make_send_m(m_room)
+                                        if not self._multi_room:
+                                            self._multi_room = True
+                                    console.print(
+                                        f"[cyan]↪[/cyan] Asking [bold magenta]{m_alias}[/bold magenta]"
+                                        f" to move to room [bold]{m_room}[/bold]…"
+                                    )
+                                except ValueError as exc:
+                                    console.print(f"[red]{exc}[/red]")
+                            continue
+
+                        if low == "/pending":
+                            reqs = self._server.pending_requests
+                            if not reqs:
+                                console.print("[dim]No pending join requests.[/dim]")
+                            else:
+                                for a, fp, r in reqs:
+                                    console.print(
+                                        f"  [bold magenta]{a}[/bold magenta]"
+                                        f" → room [bold cyan]{r}[/bold cyan]"
+                                        f"  FP: [yellow]{fp}[/yellow]"
+                                    )
+                            continue
+
                     # Send to the active room.
                     send_fn = self._send_fns.get(self._active_room)
                     state = self._room_states.get(self._active_room)
@@ -563,19 +697,41 @@ class ChatScreen:
 
         async def on_disconnected() -> None:
             await self._print_queue.put(
-                Text.assemble(
-                    ("  ✗ ", "bold red"),
-                    ("Connection closed by server", "dim"),
-                )
+                Text.assemble(("  ✗ ", "bold red"), ("Connection closed by server", "dim"))
             )
             self._stop_event.set()
 
+        async def on_pending() -> None:
+            await self._print_queue.put(
+                Text.from_markup(
+                    f"[bold yellow]  ⏳ Waiting for host approval to enter "
+                    f"[bold cyan]{target}[/bold cyan]…[/bold yellow]"
+                )
+            )
+
+        async def on_approved() -> None:
+            await self._print_queue.put(
+                Text.from_markup(
+                    f"[bold green]  ✓ Approved! You are now in "
+                    f"[bold cyan]{target}[/bold cyan].[/bold green]"
+                )
+            )
+
+        async def on_move(next_room: str) -> None:
+            await self._print_queue.put(
+                Text.from_markup(
+                    f"[bold cyan]  ↪ Host is moving you to room [bold]{next_room}[/bold]…[/bold cyan]"
+                )
+            )
+            await self._switch_join_room(next_room)
+
         new_client.on_message = on_message
         new_client.on_disconnected = on_disconnected
+        new_client.on_pending = on_pending
+        new_client.on_approved = on_approved
+        new_client.on_move = on_move
 
-        console.print(
-            f"[cyan]Switching to room[/cyan] [bold]{target}[/bold]…"
-        )
+        console.print(f"[cyan]Switching to room[/cyan] [bold]{target}[/bold]…")
 
         try:
             await new_client.connect(self._join_uri, room_id=target)
@@ -783,10 +939,16 @@ def _print_rooms(
 def _print_help(*, multi_room: bool = False, is_host: bool = False, is_join: bool = False) -> None:
     base = "[dim]  /fp[/dim]   fingerprint   [dim]/quit[/dim]  exit"
     if multi_room or is_host or is_join:
-        base += "   [dim]/rooms[/dim]  list rooms"
-        base += "   [dim]/switch <room>[/dim]  change room"
+        base += "   [dim]/rooms[/dim]  list rooms   [dim]/switch <room>[/dim]  change room"
     if is_host:
-        base += "   [dim]/new <room>[/dim]  create room"
+        base += (
+            "   [dim]/new <room>[/dim]  create room"
+            "   [dim]/group <room>[/dim]  group room"
+            "   [dim]/move <alias> <room>[/dim]  move peer"
+            "   [dim]/allow <alias>[/dim]  approve join"
+            "   [dim]/deny <alias>[/dim]  deny join"
+            "   [dim]/pending[/dim]  pending requests"
+        )
     console.print(base)
 
 

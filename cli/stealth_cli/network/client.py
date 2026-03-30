@@ -43,8 +43,9 @@ from stealth_cli.exceptions import ProtocolError, SignatureError
 logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = "1"
-HANDSHAKE_TIMEOUT = 10.0  # seconds — protocol §1.1
-PONG_TIMEOUT = 10.0  # seconds — protocol §3.2
+HANDSHAKE_TIMEOUT = 10.0   # seconds — protocol §1.1
+PONG_TIMEOUT = 10.0        # seconds — protocol §3.2
+JOIN_REQUEST_TIMEOUT = 65.0  # slightly more than server's 60s timeout
 
 
 class StealthClient:
@@ -74,6 +75,9 @@ class StealthClient:
 
         # Room — set by connect().
         self._room_id: str = "default"
+        # Group room approval state.
+        self._pending_approval_event: asyncio.Event | None = None
+        self._approved: bool = False
 
         # Peer state — populated after a successful handshake.
         self._peer_alias: str | None = None
@@ -83,6 +87,13 @@ class StealthClient:
         # Public callbacks.
         self.on_message: Callable[[str], Awaitable[None]] | None = None
         self.on_disconnected: Callable[[], Awaitable[None]] | None = None
+        # Called when the server puts this client in pending state (group room).
+        self.on_pending: Callable[[], Awaitable[None]] | None = None
+        # Called when the host approves entry into a group room.
+        self.on_approved: Callable[[], Awaitable[None]] | None = None
+        # Called when the host asks this client to move to a different room.
+        # Signature: async def cb(room_id: str) -> None
+        self.on_move: Callable[[str], Awaitable[None]] | None = None
 
     # ------------------------------------------------------------------ #
     # Peer identity (available after connect)                              #
@@ -142,6 +153,39 @@ class StealthClient:
             await self._ws.close()
             self._ws = None
             raise
+
+        # If the server put us in pending state, wait for approval before
+        # returning — this keeps connect() blocking until the host decides.
+        if self._pending_approval_event is not None:
+            # Start a minimal receive task just to process pending/approved/error.
+            approval_recv = asyncio.create_task(
+                self._approval_loop(), name="stealth-client-approval"
+            )
+            try:
+                await asyncio.wait_for(
+                    self._pending_approval_event.wait(),
+                    timeout=JOIN_REQUEST_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                approval_recv.cancel()
+                await self._ws.close()
+                self._ws = None
+                self._pending_approval_event = None
+                raise ProtocolError("approval timed out waiting for host", 4008)
+            finally:
+                approval_recv.cancel()
+                try:
+                    await approval_recv
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+            if not self._approved:
+                await self._ws.close()
+                self._ws = None
+                self._pending_approval_event = None
+                raise ProtocolError("join request denied by host", 4008)
+
+            self._pending_approval_event = None
 
         # Start background receive loop.
         self._recv_task = asyncio.create_task(
@@ -277,7 +321,48 @@ class StealthClient:
         self._peer_armored_pubkey = peer_armored
         self._peer_fingerprint = get_fingerprint(peer_armored)
 
+        # For group rooms the server may send a second frame: "pending".
+        # Peek at the next frame without blocking the full handshake timeout.
+        try:
+            raw2 = await asyncio.wait_for(self._ws.recv(), timeout=0.5)
+            try:
+                msg2: dict[str, Any] = json.loads(raw2)
+            except (json.JSONDecodeError, TypeError):
+                return  # ignore unparseable second frame
+            if msg2.get("type") == "pending":
+                self._pending_approval_event = asyncio.Event()
+                self._approved = False
+        except asyncio.TimeoutError:
+            pass  # no second frame — normal 1:1 room
+
     # ------------------------------------------------------------------ #
+    # Approval loop (group rooms only)                                     #
+    # ------------------------------------------------------------------ #
+
+    async def _approval_loop(self) -> None:
+        """Read frames until approved/denied — used only during connect()."""
+        assert self._ws is not None
+        try:
+            async for raw in self._ws:
+                try:
+                    msg: dict[str, Any] = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                msg_type = msg.get("type")
+                if msg_type == "approved":
+                    self._approved = True
+                    if self._pending_approval_event:
+                        self._pending_approval_event.set()
+                    return
+                if msg_type == "error":
+                    self._approved = False
+                    if self._pending_approval_event:
+                        self._pending_approval_event.set()
+                    return
+        except (websockets.exceptions.ConnectionClosed, asyncio.CancelledError):
+            if self._pending_approval_event and not self._pending_approval_event.is_set():
+                self._pending_approval_event.set()
+
     # Receive loop                                                         #
     # ------------------------------------------------------------------ #
 
@@ -310,16 +395,24 @@ class StealthClient:
         if msg_type == "message":
             await self._handle_chat(msg)
         elif msg_type == "pong":
-            # Wake up any pending ping() call.
             if self._pong_event is not None and not self._pong_event.is_set():
                 self._pong_event.set()
         elif msg_type == "ping":
-            # Server may also send pings — reply with pong.
             assert self._ws is not None
             await self._ws.send(json.dumps({"type": "pong"}))
         elif msg_type == "bye":
             assert self._ws is not None
             await self._ws.close()
+        elif msg_type == "pending":
+            if self.on_pending:
+                await self.on_pending()
+        elif msg_type == "approved":
+            if self.on_approved:
+                await self.on_approved()
+        elif msg_type == "move":
+            target_room = str(msg.get("room") or "")
+            if target_room and self.on_move:
+                await self.on_move(target_room)
         elif msg_type == "error":
             logger.warning(
                 "Error from server: code=%s reason=%s",
@@ -329,7 +422,6 @@ class StealthClient:
         elif msg_type is None:
             await self._safe_send_error(4002, "missing 'type' field")
         else:
-            # Unknown type → ignore silently for forward compatibility (§5).
             logger.debug("Ignoring unknown message type %r from server", msg_type)
 
     async def _handle_chat(self, msg: dict[str, Any]) -> None:
