@@ -9,6 +9,14 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Changed
+- `README.md`: actualizado con características actuales, inicio rápido y ejemplo de uso
+- `ARCHITECTURE.md`: actualizado con modelo de salas, flujo de descubrimiento,
+  flujo de sala de grupo y decisión de diseño sobre relay en host
+- `__main__.py` (`--manual`): manual actualizado — descubrimiento de salas,
+  `/rooms` con salas conocidas, ejemplos con grupo/move, tabla de seguridad ampliada,
+  `ws://` automático documentado
+
 ### Fixed
 - `__main__.py`: la URI introducida sin prefijo `ws://` (e.g. `192.168.1.10:8765`) se
   normaliza automáticamente — aplica tanto al modo interactivo como al flag `--join`
