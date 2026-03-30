@@ -51,6 +51,7 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.text import Text
 
+from stealth_cli.exceptions import ProtocolError
 from stealth_cli.network.client import StealthClient
 from stealth_cli.network.server import StealthServer
 
@@ -162,6 +163,9 @@ class ChatScreen:
         self._print_queue: asyncio.Queue[Optional[Text]] = asyncio.Queue()
         # Reference to the running server (host mode only) — used by /new command.
         self._server: Optional[StealthServer] = None
+        # Join mode: URI and active client — used by /switch command.
+        self._join_uri: Optional[str] = None
+        self._join_client: Optional[StealthClient] = None
 
     # ------------------------------------------------------------------ #
     # Host mode                                                            #
@@ -211,11 +215,12 @@ class ChatScreen:
                 Text.from_markup("[dim]  Verify fingerprint out-of-band before trusting.[/dim]")
             )
             # Show help in the queue so it appears after the connection banner.
-            help_text = "[dim]  /fp[/dim]   fingerprint   [dim]/quit[/dim]  exit"
-            help_text += "   [dim]/rooms[/dim]  list rooms"
-            if self._multi_room:
-                help_text += "   [dim]/switch <room>[/dim]  change room"
-            help_text += "   [dim]/new <room>[/dim]  create room"
+            help_text = (
+                "[dim]  /fp[/dim]   fingerprint   [dim]/quit[/dim]  exit"
+                "   [dim]/rooms[/dim]  list rooms"
+                "   [dim]/switch <room>[/dim]  change room"
+                "   [dim]/new <room>[/dim]  create room"
+            )
             await self._print_queue.put(Text.from_markup(help_text))
 
         async def on_message(
@@ -313,18 +318,24 @@ class ChatScreen:
 
         await client.connect(uri, room_id=room_id)
 
-        state = self._room_states.get(room_id)
-        if state:
-            state.peer_alias = client.peer_alias
-            state.peer_fingerprint = client.peer_fingerprint
-            state.connected = True
+        self._join_uri = uri
+        self._join_client = client
+        self._active_room = room_id
+        self._multi_room = True  # join mode always shows room UI
+
+        if room_id not in self._room_states:
+            self._room_states[room_id] = RoomState(room_id=room_id)
+        state = self._room_states[room_id]
+        state.peer_alias = client.peer_alias
+        state.peer_fingerprint = client.peer_fingerprint
+        state.connected = True
 
         self._send_fns[room_id] = client.send_message
 
         _print_connected_banner(
             client.peer_alias,
             client.peer_fingerprint,
-            room_id if (self._multi_room or room_id != "default") else None,
+            room_id,
         )
 
         try:
@@ -401,6 +412,7 @@ class ChatScreen:
                         _print_help(
                             multi_room=self._multi_room,
                             is_host=self._server is not None,
+                            is_join=self._join_uri is not None,
                         )
                         continue
 
@@ -439,28 +451,34 @@ class ChatScreen:
                             )
                         continue
 
-                    if self._multi_room and (
+                    if (
                         text.lower().startswith("/switch ")
                         or text.lower().startswith("/s ")
                     ):
                         parts = text.split(None, 1)
                         target = parts[1].strip() if len(parts) > 1 else ""
-                        if target in self._room_states:
-                            self._active_room = target
-                            state = self._room_states[target]
-                            status = (
-                                f"[bold magenta]{state.peer_alias}[/bold magenta] connected"
-                                if state.connected
-                                else "[dim]no peer yet[/dim]"
-                            )
-                            console.print(
-                                f"[cyan]Active room:[/cyan] [bold]{target}[/bold]  {status}"
-                            )
+
+                        if self._join_uri is not None:
+                            # Join mode: reconnect to the new room.
+                            await self._switch_join_room(target)
                         else:
-                            console.print(
-                                f"[red]Room not found:[/red] {target!r}  "
-                                f"(available: {', '.join(self._room_states)})"
-                            )
+                            # Host mode: just change the active room pointer.
+                            if target in self._room_states:
+                                self._active_room = target
+                                state = self._room_states[target]
+                                status = (
+                                    f"[bold magenta]{state.peer_alias}[/bold magenta] connected"
+                                    if state.connected
+                                    else "[dim]no peer yet[/dim]"
+                                )
+                                console.print(
+                                    f"[cyan]Active room:[/cyan] [bold]{target}[/bold]  {status}"
+                                )
+                            else:
+                                console.print(
+                                    f"[red]Room not found:[/red] {target!r}  "
+                                    f"(available: {', '.join(self._room_states)})"
+                                )
                         continue
 
                     # Send to the active room.
@@ -499,6 +517,153 @@ class ChatScreen:
             if item is None:
                 break
             console.print(item)
+
+    # ------------------------------------------------------------------ #
+    # Join-mode room switch                                                #
+    # ------------------------------------------------------------------ #
+
+    async def _switch_join_room(self, target: str) -> None:
+        """Disconnect from the current room and connect to ``target`` (join mode)."""
+        assert self._join_uri is not None
+
+        if not target:
+            console.print("[red]Usage:[/red] /switch <room-name>")
+            return
+
+        if target == self._active_room:
+            console.print(f"[yellow]Already in room '{target}'.[/yellow]")
+            return
+
+        # Disconnect current client cleanly.
+        old_client = self._join_client
+        if old_client is not None:
+            try:
+                await old_client.disconnect()
+            except Exception:
+                pass
+            self._join_client = None
+
+        # Clear old room state.
+        old_state = self._room_states.get(self._active_room)
+        if old_state:
+            old_state.connected = False
+            old_state.peer_alias = None
+            old_state.peer_fingerprint = None
+        self._send_fns.pop(self._active_room, None)
+
+        # Try to connect to the new room.
+        new_client = StealthClient(
+            self._alias, self._armored_private, self._passphrase
+        )
+
+        async def on_message(plaintext: str) -> None:
+            state = self._room_states.get(target)
+            peer_alias = (state.peer_alias if state else None) or "peer"
+            await self._enqueue_incoming(peer_alias, plaintext, target)
+
+        async def on_disconnected() -> None:
+            await self._print_queue.put(
+                Text.assemble(
+                    ("  ✗ ", "bold red"),
+                    ("Connection closed by server", "dim"),
+                )
+            )
+            self._stop_event.set()
+
+        new_client.on_message = on_message
+        new_client.on_disconnected = on_disconnected
+
+        console.print(
+            f"[cyan]Switching to room[/cyan] [bold]{target}[/bold]…"
+        )
+
+        try:
+            await new_client.connect(self._join_uri, room_id=target)
+        except ProtocolError as exc:
+            if exc.code == 4006:
+                console.print(
+                    f"[red]Room '{target}' is already occupied.[/red] "
+                    "Choose a different room."
+                )
+            elif exc.code == 4007:
+                console.print(
+                    f"[red]Room '{target}' does not exist on this server.[/red]"
+                )
+            else:
+                console.print(f"[red]Cannot join room '{target}':[/red] {exc}")
+            # Reconnect to the previous room to stay in a consistent state.
+            await self._reconnect_to_room(self._active_room)
+            return
+        except Exception as exc:
+            console.print(f"[red]Connection error:[/red] {exc}")
+            await self._reconnect_to_room(self._active_room)
+            return
+
+        # Success — update state.
+        self._join_client = new_client
+        self._active_room = target
+
+        if target not in self._room_states:
+            self._room_states[target] = RoomState(room_id=target)
+        state = self._room_states[target]
+        state.peer_alias = new_client.peer_alias
+        state.peer_fingerprint = new_client.peer_fingerprint
+        state.connected = True
+
+        self._send_fns[target] = new_client.send_message
+
+        console.print(
+            Text.assemble(
+                ("  ✓ ", "bold green"),
+                ("Switched to room ", ""),
+                (target, "bold cyan"),
+                (" — connected to ", ""),
+                (new_client.peer_alias, "bold magenta"),
+            )
+        )
+        console.print(
+            Text.assemble(
+                ("    Fingerprint: ", "dim"),
+                (new_client.peer_fingerprint, "yellow"),
+            )
+        )
+
+    async def _reconnect_to_room(self, room_id: str) -> None:
+        """Re-establish connection to ``room_id`` after a failed switch."""
+        assert self._join_uri is not None
+        new_client = StealthClient(
+            self._alias, self._armored_private, self._passphrase
+        )
+
+        async def on_message(plaintext: str) -> None:
+            state = self._room_states.get(room_id)
+            peer_alias = (state.peer_alias if state else None) or "peer"
+            await self._enqueue_incoming(peer_alias, plaintext, room_id)
+
+        async def on_disconnected() -> None:
+            await self._print_queue.put(
+                Text.assemble(("  ✗ ", "bold red"), ("Connection closed by server", "dim"))
+            )
+            self._stop_event.set()
+
+        new_client.on_message = on_message
+        new_client.on_disconnected = on_disconnected
+
+        try:
+            await new_client.connect(self._join_uri, room_id=room_id)
+            self._join_client = new_client
+            state = self._room_states.get(room_id)
+            if state:
+                state.peer_alias = new_client.peer_alias
+                state.peer_fingerprint = new_client.peer_fingerprint
+                state.connected = True
+            self._send_fns[room_id] = new_client.send_message
+            console.print(
+                f"[dim]Stayed in room [bold]{room_id}[/bold].[/dim]"
+            )
+        except Exception as exc:
+            console.print(f"[red]Could not reconnect to '{room_id}':[/red] {exc}")
+            self._stop_event.set()
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #
@@ -561,7 +726,7 @@ def _print_connected_banner(
     )
     console.print("[dim]  Verify fingerprint out-of-band before trusting.[/dim]")
     console.print()
-    _print_help(multi_room=room_id is not None, is_host=False)
+    _print_help(multi_room=False, is_host=False, is_join=True)
     console.print(Rule(style="dim"))
     console.print()
 
@@ -615,11 +780,10 @@ def _print_rooms(
     console.print()
 
 
-def _print_help(*, multi_room: bool = False, is_host: bool = False) -> None:
+def _print_help(*, multi_room: bool = False, is_host: bool = False, is_join: bool = False) -> None:
     base = "[dim]  /fp[/dim]   fingerprint   [dim]/quit[/dim]  exit"
-    if multi_room or is_host:
+    if multi_room or is_host or is_join:
         base += "   [dim]/rooms[/dim]  list rooms"
-    if multi_room:
         base += "   [dim]/switch <room>[/dim]  change room"
     if is_host:
         base += "   [dim]/new <room>[/dim]  create room"
