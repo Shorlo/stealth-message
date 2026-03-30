@@ -10,6 +10,16 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- **Consulta de salas al unirse (modo interactivo)**: tras introducir la URI del servidor,
+  se muestra automáticamente la lista de salas disponibles con tipo y estado antes de
+  preguntar a qué sala unirse. Nunca se muestran nombres de usuarios conectados.
+  - Salas 1:1: `available` / `occupied`
+  - Salas de grupo: `host + N users`
+  - `network/server.py`: maneja `listrooms` antes del handshake; responde con `roomsinfo`
+    (`_rooms_info`, `_handle_listrooms`). `_do_handshake` acepta `first_msg` ya leído.
+  - `network/client.py`: función standalone `query_rooms(uri)`.
+  - `__main__.py`: `_print_room_list(uri)` llama a `query_rooms` y renderiza tabla Rich.
+  - `docs/protocol.md`: mensajes `listrooms` / `roomsinfo`, versión 0.5.
 - **Descubrimiento de salas de grupo**: los peers ven en `/rooms` todas las salas de grupo
   del servidor aunque no estén en ellas — pueden hacer `/switch <sala>` para solicitar
   entrada (el host debe aprobar si la sala ya tiene usuarios)

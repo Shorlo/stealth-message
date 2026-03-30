@@ -309,10 +309,30 @@ class StealthServer:
     # ------------------------------------------------------------------ #
 
     async def _handle_connection(self, ws: ServerConnection) -> None:
+        # Read the first frame to decide: listrooms query or normal hello.
+        try:
+            raw = await asyncio.wait_for(ws.recv(), timeout=HANDSHAKE_TIMEOUT)
+        except asyncio.TimeoutError:
+            await self._safe_send_error(ws, 4005, "handshake timeout")
+            return
+        except websockets.exceptions.ConnectionClosed:
+            return
+
+        try:
+            first_msg: dict[str, Any] = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            await self._safe_send_error(ws, 4002, "invalid JSON")
+            return
+
+        # Handle lightweight room-discovery request (no auth needed).
+        if first_msg.get("type") == "listrooms":
+            await self._handle_listrooms(ws)
+            return
+
         peer: PeerSession | None = None
         try:
             peer = await asyncio.wait_for(
-                self._do_handshake(ws), timeout=HANDSHAKE_TIMEOUT
+                self._do_handshake(ws, first_msg=first_msg), timeout=HANDSHAKE_TIMEOUT
             )
         except asyncio.TimeoutError:
             await self._safe_send_error(ws, 4005, "handshake timeout")
@@ -355,12 +375,17 @@ class StealthServer:
     # Handshake — §1.1                                                     #
     # ------------------------------------------------------------------ #
 
-    async def _do_handshake(self, ws: ServerConnection) -> PeerSession:
-        raw = await ws.recv()
-        try:
-            msg: dict[str, Any] = json.loads(raw)
-        except (json.JSONDecodeError, TypeError) as exc:
-            raise ProtocolError("malformed hello: invalid JSON", 4002) from exc
+    async def _do_handshake(
+        self, ws: ServerConnection, *, first_msg: dict[str, Any] | None = None
+    ) -> PeerSession:
+        if first_msg is not None:
+            msg = first_msg
+        else:
+            raw = await ws.recv()
+            try:
+                msg = json.loads(raw)
+            except (json.JSONDecodeError, TypeError) as exc:
+                raise ProtocolError("malformed hello: invalid JSON", 4002) from exc
 
         if msg.get("type") != "hello":
             raise ProtocolError(f"expected hello, got {msg.get('type')!r}", 4002)
@@ -528,6 +553,29 @@ class StealthServer:
     # ------------------------------------------------------------------ #
     # Outbound helpers                                                     #
     # ------------------------------------------------------------------ #
+
+    def _rooms_info(self) -> list[dict[str, Any]]:
+        """Return room info for discovery — no peer names, only counts."""
+        all_rooms: set[str] = set(self._allowed_rooms or []) | set(self._rooms.keys())
+        result = []
+        for room_id in sorted(all_rooms):
+            is_group = room_id in self._group_rooms
+            peer_count = len(self._rooms.get(room_id, []))
+            if is_group:
+                result.append({"id": room_id, "kind": "group", "peers": peer_count})
+            else:
+                result.append(
+                    {"id": room_id, "kind": "1:1", "peers": peer_count, "available": peer_count == 0}
+                )
+        return result
+
+    async def _handle_listrooms(self, ws: ServerConnection) -> None:
+        """Respond to a listrooms query and close the connection."""
+        try:
+            await ws.send(json.dumps({"type": "roomsinfo", "rooms": self._rooms_info()}))
+            await ws.close()
+        except websockets.exceptions.ConnectionClosed:
+            pass
 
     async def _send_roomlist_to(self, peer: PeerSession) -> None:
         """Send the current group room list to a single peer."""

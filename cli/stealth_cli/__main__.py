@@ -31,6 +31,7 @@ from rich.text import Text
 
 from stealth_cli import config
 from stealth_cli.crypto.keys import load_private_key
+from stealth_cli.network.client import query_rooms
 from stealth_cli.ui.chat import run_chat
 from stealth_cli.ui.setup import run_setup
 
@@ -189,6 +190,50 @@ async def _async_main() -> int:
 # --------------------------------------------------------------------------- #
 
 
+async def _print_room_list(uri: str) -> None:
+    """Query the server for room info and print a formatted list."""
+    from rich.table import Table
+
+    console.print(f"[dim]Fetching rooms from[/dim] [bold]{uri}[/bold][dim]…[/dim]")
+    rooms = await query_rooms(uri)
+    if not rooms:
+        console.print("[yellow]  Could not retrieve room list (server may not support it).[/yellow]")
+        return
+
+    t = Table.grid(padding=(0, 2))
+    t.add_column(no_wrap=True)   # room name
+    t.add_column(no_wrap=True)   # kind badge
+    t.add_column()               # status
+
+    for room in rooms:
+        room_id = str(room.get("id", ""))
+        kind = str(room.get("kind", "1:1"))
+        peers = int(room.get("peers", 0))
+
+        if kind == "group":
+            badge = "[yellow]group[/yellow]"
+            if peers == 0:
+                status = "[dim]empty — host only[/dim]"
+            elif peers == 1:
+                status = f"[dim]host + {peers} user[/dim]"
+            else:
+                status = f"[dim]host + {peers} users[/dim]"
+        else:
+            badge = "[cyan]1:1[/cyan]"
+            available = bool(room.get("available", True))
+            if available:
+                status = "[green]available[/green]"
+            else:
+                status = "[red]occupied[/red]"
+
+        t.add_row(f"  [bold]{room_id}[/bold]", badge, status)
+
+    console.print()
+    console.print("[bold]Available rooms:[/bold]")
+    console.print(t)
+    console.print()
+
+
 async def _prompt_passphrase(alias: str) -> str:
     """Ask the user for their passphrase at startup."""
     session: PromptSession[str] = PromptSession(style=_STYLE)
@@ -245,11 +290,13 @@ async def _prompt_mode() -> tuple[str, int, str | None, list[str] | None, str]:
             uri: str = await session.prompt_async(
                 HTML("<prompt>Server URI (ws://host:port): </prompt>"),
             )
+            uri = uri.strip()
+            await _print_room_list(uri)
             room_str: str = await session.prompt_async(
                 HTML("<prompt>Room [default]: </prompt>"),
             )
             room = room_str.strip() or "default"
-            return "join", DEFAULT_PORT, uri.strip(), None, room
+            return "join", DEFAULT_PORT, uri, None, room
 
         console.print("[red]Please enter 'h' or 'j'.[/red]")
 

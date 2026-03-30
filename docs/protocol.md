@@ -166,6 +166,8 @@ Todo mensaje tiene obligatoriamente el campo `type`. El resto de campos dependen
 |-----------|--------------------|-----------------------------------------|
 | hello     | ambas partes       | version, alias, pubkey (+ room en cliente) |
 | message   | emisor → receptor  | id, payload, timestamp (+ sender en reenvíos de grupo) |
+| listrooms | cliente → servidor | — (solicita la lista de salas antes de unirse)          |
+| roomsinfo | servidor → cliente | rooms (lista de salas con tipo y disponibilidad, sin nombres de peers) |
 | roomlist  | servidor → cliente | groups (lista de nombres de salas de grupo descubribles) |
 | pending   | servidor → cliente | — (sala de grupo ocupada, esperando aprobación del host) |
 | approved  | servidor → cliente | — (host aprobó la entrada)              |
@@ -200,3 +202,4 @@ Mensajes con `type` desconocido deben ignorarse silenciosamente (para compatibil
 | 0.2     | 2026-03    | Sistema de salas (room): campo room en hello, códigos 4006 y 4007, límite 1 peer/sala |
 | 0.3     | 2026-03    | Salas de grupo: mensajes pending/approved/move, código 4008, aprobación del host |
 | 0.4     | 2026-03    | Descubrimiento de salas de grupo: mensaje roomlist (servidor → cliente) |
+| 0.5     | 2026-03    | Consulta de salas antes de unirse: listrooms / roomsinfo (sin nombres de peers) |
