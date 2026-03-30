@@ -386,8 +386,8 @@ This creates three independent rooms. Peers connect to a specific room by name.
 ### Bob — join mode
 
 ```
-python -m stealth_cli --join ws://ALICE_IP:8765
-python -m stealth_cli --join ws://ALICE_IP:8765 --room bob   # named room
+python -m stealth_cli --join ALICE_IP:8765          # ws:// added automatically
+python -m stealth_cli --join ALICE_IP:8765 --room bob
 ```
 
 ### Interactive mode (no flags)
@@ -396,8 +396,17 @@ python -m stealth_cli --join ws://ALICE_IP:8765 --room bob   # named room
 python -m stealth_cli
 ```
 
-The program asks whether to host or join, prompts for port/URI, and asks
-for room names if hosting.
+When joining interactively, after entering the server address the program
+fetches and displays the available rooms before asking which one to join:
+
+```
+Available rooms:
+  lobby   1:1    available
+  work    1:1    occupied
+  team    group  host + 2 users
+```
+
+Room names are shown but connected user names are never disclosed.
 
 ---
 
@@ -406,7 +415,8 @@ for room names if hosting.
 ### 1-on-1 rooms (default)
 
 Each room admits exactly **one peer**. A second peer trying to connect gets
-error 4006 (room occupied).
+error 4006 (room occupied). The host can hold multiple 1-on-1 rooms in parallel
+and switch between them with `/switch`.
 
 ### Group rooms
 
@@ -428,8 +438,19 @@ When a new peer tries to join a group room that already has someone:
 - `/allow Carol` → Carol enters the room
 - `/deny Carol` → Carol is rejected
 
-In group rooms, messages sent by any peer are forwarded to **all** other peers
-in that room (peer-to-peer relay through the host).
+In group rooms, messages are forwarded to **all** other peers in the room.
+The host re-encrypts each message for each recipient individually.
+
+### Room discovery
+
+After connecting, every peer receives the list of group rooms on the server.
+Running `/rooms` shows all known rooms including ones not yet visited:
+
+```
+▶ team       ✓ Alice, Bob
+  lobby      waiting for peer…
+  open-chat  group  /switch to join
+```
 
 ---
 
@@ -441,7 +462,7 @@ The host needs a publicly reachable IP. Two options:
 
 1. Find your public IP: `curl ifconfig.me`
 2. In your router: NAT → Port Forwarding → TCP port 8765 → your local IP.
-3. Give peers: `ws://YOUR_PUBLIC_IP:8765`
+3. Give peers: `ALICE_PUBLIC_IP:8765`
 4. Close the port forwarding rule when you finish.
 
 > If port forwarding does not work, your ISP may use CG-NAT.
@@ -458,7 +479,7 @@ No router configuration needed.
    ("Share node" — they only see Alice's machine, not her whole network).
 3. Run `tailscale status` to see each other's `100.x.x.x` addresses.
 4. Alice: `python -m stealth_cli --host`
-5. Others: `python -m stealth_cli --join ws://ALICE_TAILSCALE_IP:8765 --room <name>`
+5. Others: `python -m stealth_cli --join ALICE_TAILSCALE_IP:8765 --room <name>`
 6. Revoke the share when done.
 
 > With Tailscale, messages travel encrypted by WireGuard AND by PGP —
@@ -471,8 +492,8 @@ No router configuration needed.
 | Command | Action |
 |---------|--------|
 | `/fp` | Show the current peer's PGP fingerprint |
-| `/rooms` | List all rooms and their connection status |
-| `/switch <room>` | Change active room (or reconnect to a different room) |
+| `/rooms` | List all known rooms and their status |
+| `/switch <room>` | Change active room (join mode: reconnects; host mode: changes focus) |
 | `/help` | Show available commands |
 | `/quit` or `/exit` or `/q` | Close the session cleanly |
 | `Ctrl+C` | Also closes the session |
@@ -483,7 +504,7 @@ No router configuration needed.
 |---------|--------|
 | `/new <room>` | Create a new 1-on-1 room at runtime |
 | `/group <room>` | Convert a room to group mode (multiple peers) |
-| `/move <alias> <room>` | Move a peer to a different room (pre-approved) |
+| `/move <alias> <room>` | Move a peer to a different room (pre-approved, no prompt) |
 | `/allow <alias>` | Approve a pending join request |
 | `/deny <alias>` | Deny a pending join request |
 | `/pending` | List all pending join requests |
@@ -499,12 +520,12 @@ python -m stealth_cli --host --rooms bob,carol
 
 **Bob:**
 ```
-python -m stealth_cli --join ws://ALICE_IP:8765 --room bob
+python -m stealth_cli --join ALICE_IP:8765 --room bob
 ```
 
 **Carol:**
 ```
-python -m stealth_cli --join ws://ALICE_IP:8765 --room carol
+python -m stealth_cli --join ALICE_IP:8765 --room carol
 ```
 
 Alice uses `/switch bob` and `/switch carol` to alternate between conversations.
@@ -516,40 +537,31 @@ Neither Bob nor Carol can see each other's messages.
 
 **Alice (host):**
 ```
-python -m stealth_cli --host --rooms team
-[Alice@team] /group team            # make it a group room
+python -m stealth_cli --host --rooms lobby,team
+[Alice@lobby] /group team       # convert team to group mode
+[Alice@lobby] /move Bob team    # move Bob — pre-approved
 ```
 
-**Bob:**
+**Bob** (already connected to lobby):
 ```
-python -m stealth_cli --join ws://ALICE_IP:8765 --room team
-  ✓ Connected to Alice  [room: team]
+  ↪ Host is moving you to room team…
+  ✓ Switched to room team — connected to Alice
 ```
 
-**Carol** (joins later):
+**Carol** (joins directly):
 ```
-python -m stealth_cli --join ws://ALICE_IP:8765 --room team
+python -m stealth_cli --join ALICE_IP:8765 --room team
   ⏳ Waiting for host to approve your entry into room team…
 ```
 
-**Alice sees:**
+**Alice approves:**
 ```
   ⚠  Join request: Carol wants to enter room team
-     /allow Carol  or  /deny Carol
-
 [Alice@team] /allow Carol
-✓ Join approved for Carol
 ```
 
-Now Alice, Bob and Carol are all in the same room. Any message sent by
+Now Alice, Bob and Carol are all in room `team`. Any message sent by
 any of them reaches all the others.
-
-Alternatively, Alice can move Carol directly without an approval prompt:
-```
-[Alice@bob] /move Carol team
-↪ Asking Carol to move to room team…
-```
-Carol's client switches to `team` automatically.
 
 ---
 
@@ -574,8 +586,9 @@ If they do not, disconnect immediately.
 |----------|-----------|
 | Message confidentiality | Only the recipient can decrypt (RSA-4096 + AES-256) |
 | Message authenticity | Every message is signed; invalid signatures are rejected |
-| Group room relay | Messages are re-encrypted by the host for each recipient |
+| Group room relay | Host re-encrypts per recipient; host sees plaintext during relay |
 | Room isolation | Peers in different rooms cannot read each other's messages |
+| Room discovery | Room list shows counts only — connected user names are never disclosed |
 | Access control | Group rooms require explicit host approval for each new peer |
 | Forward secrecy | Not yet implemented (planned for protocol v2) |
 | Private key storage | Disk-encrypted with your passphrase (AES-256) |
@@ -604,7 +617,7 @@ A wrong passphrase exits immediately without loading any data.
 |------|-------------|
 | `--host [PORT]` | Host a session on PORT (default 8765) |
 | `--rooms ROOMS` | Comma-separated room names (host mode) |
-| `--join URI` | Join a session at ws://host:port |
+| `--join URI` | Join a session at host:port (ws:// added automatically) |
 | `--room ROOM` | Room to join (join mode, default: "default") |
 | `--manual` | Show this manual |
 | `--debug` | Enable verbose debug logging |

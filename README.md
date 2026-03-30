@@ -8,7 +8,7 @@ Chat cifrado end-to-end con claves PGP. Sin servidores centrales. Sin cuentas. S
 
 `stealth-message` permite a dos o más personas comunicarse de forma privada mediante
 cifrado OpenPGP (RFC 4880). Los mensajes nunca pasan por un servidor relay: uno de los
-participantes actúa como host (levanta un servidor WebSocket) y el resto se conectan
+participantes actúa como **host** (levanta un servidor WebSocket) y el resto se conectan
 directamente a él.
 
 **Lo que el servidor no puede ver porque no existe.**
@@ -17,12 +17,16 @@ directamente a él.
 
 ## Características
 
-- Cifrado end-to-end con claves PGP: solo el destinatario puede leer el mensaje.
-- Firma digital: cada mensaje está firmado; la identidad del emisor es verificable.
-- Sin servidor central: modelo peer-to-peer directo.
+- Cifrado end-to-end RSA-4096 + AES-256: solo el destinatario puede leer el mensaje.
+- Firma digital en cada mensaje: identidad del emisor verificable criptográficamente.
+- Sin servidor central: modelo peer-to-peer directo (host + peers).
 - Sin cuentas ni registro: la identidad es la clave PGP.
-- Claves privadas almacenadas en el almacén seguro del SO (Keychain, DPAPI, libsecret).
-- Cuatro clientes nativos que interoperan entre sí mediante un protocolo común.
+- Claves privadas almacenadas con permisos `0600`; passphrase solo en memoria.
+- **Salas 1:1** — exactamente un peer por sala; acceso denegado si está ocupada.
+- **Salas de grupo** — múltiples peers con aprobación explícita del host.
+- Descubrimiento de salas: los peers ven la lista de salas disponibles antes de unirse.
+- Movimiento de peers entre salas en caliente con `/move`.
+- Cuatro clientes nativos que interoperan mediante un protocolo común.
 
 ---
 
@@ -30,13 +34,40 @@ directamente a él.
 
 | Plataforma | Tecnología           | Directorio   | Estado        |
 |------------|----------------------|--------------|---------------|
-| Terminal   | Python 3.10+         | `cli/`       | En desarrollo |
+| Terminal   | Python 3.10+         | `cli/`       | Funcional     |
 | macOS      | Swift 5.9+ / SwiftUI | `macos/`     | En desarrollo |
 | Windows 11 | C# 12 / WinUI 3      | `windows/`   | En desarrollo |
 | Linux      | Python 3.10+ / GTK4  | `linux/`     | En desarrollo |
 
 Todos los clientes implementan el mismo protocolo (`docs/protocol.md`) y pueden
 comunicarse entre sí independientemente de la plataforma.
+
+---
+
+## Inicio rápido (CLI)
+
+```bash
+cd cli
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+python -m stealth_cli
+```
+
+La primera vez se ejecuta el asistente de configuración: elige un alias y una passphrase.
+Se genera un par de claves RSA-4096 y se muestra tu fingerprint.
+
+**Host:**
+```bash
+python -m stealth_cli --host               # puerto por defecto 8765
+python -m stealth_cli --host --rooms a,b   # múltiples salas
+```
+
+**Join:**
+```bash
+python -m stealth_cli --join ALICE_IP:8765 --room a
+# El prefijo ws:// se añade automáticamente si se omite
+```
 
 ---
 
@@ -48,18 +79,6 @@ las capas de cada subproyecto y las decisiones de diseño.
 El protocolo de comunicación está especificado en [docs/protocol.md](docs/protocol.md).
 Este documento es la fuente de verdad: si hay contradicción entre el código y el protocolo,
 el protocolo manda.
-
----
-
-## Empezar a desarrollar
-
-Cada subproyecto tiene su propio entorno de desarrollo. Consulta el `CLAUDE.md`
-correspondiente para instrucciones detalladas:
-
-- [cli/CLAUDE.md](cli/CLAUDE.md) — Python, asyncio, websockets, pgpy
-- [macos/CLAUDE.md](macos/CLAUDE.md) — Swift, SwiftUI, SPM
-- [windows/CLAUDE.md](windows/CLAUDE.md) — C#, .NET 8, WinUI 3
-- [linux/CLAUDE.md](linux/CLAUDE.md) — Python, GTK4, PyGObject
 
 ---
 
