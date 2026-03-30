@@ -470,3 +470,30 @@ class StealthClient:
             )
         except websockets.exceptions.ConnectionClosed:
             pass
+
+
+async def query_rooms(uri: str, timeout: float = 5.0) -> list[dict[str, Any]]:
+    """Query available rooms from a StealthServer without joining.
+
+    Sends a ``listrooms`` request and returns the server's room list.
+    Each entry is a dict with keys:
+      - ``id`` (str): room name
+      - ``kind`` (str): ``"1:1"`` or ``"group"``
+      - ``peers`` (int): number of currently connected peers
+      - ``available`` (bool): only present for 1:1 rooms; True if joinable
+
+    Returns an empty list if the server is unreachable or does not support
+    the ``listrooms`` request.
+    """
+    try:
+        async with connect(uri, ping_interval=None) as ws:
+            await ws.send(json.dumps({"type": "listrooms"}))
+            raw = await asyncio.wait_for(ws.recv(), timeout=timeout)
+            msg: dict[str, Any] = json.loads(raw)
+            if msg.get("type") == "roomsinfo":
+                rooms = msg.get("rooms")
+                if isinstance(rooms, list):
+                    return [r for r in rooms if isinstance(r, dict)]
+    except Exception as exc:
+        logger.debug("query_rooms failed: %s", exc)
+    return []
