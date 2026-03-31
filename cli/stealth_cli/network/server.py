@@ -6,7 +6,7 @@ Rooms can be **1-on-1** (default, max 1 peer) or **group** (unlimited peers
 with host-approval gate).
 
 * 1-on-1 room: second peer gets error 4006 immediately.
-* Group room:  second+ peer gets a ``pending`` message and waits up to
+* Group room:  every peer gets a ``pending`` message and waits up to
   JOIN_REQUEST_TIMEOUT seconds for the host to ``/allow`` or ``/deny`` them.
   The ``on_join_request`` callback fires so the host UI can display the
   prompt.
@@ -474,8 +474,8 @@ class StealthServer:
             room_id=room_id,
         )
 
-        if existing and is_group and not is_pre_approved:
-            # Group room already has peers → pending approval flow.
+        if is_group and not is_pre_approved:
+            # Group room → pending approval flow for every peer (including the first).
             # We send the server hello FIRST so the client knows who the host is,
             # then send `pending` so the client can display a waiting message.
             pending = PendingPeer(session=peer, room_id=room_id)

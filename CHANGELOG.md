@@ -18,6 +18,10 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
   inadvertently capped at 10 s, causing the server to close the connection
   before the host could type `/allow <alias>`, which made every approval appear
   as "join request denied by host" on the client side.
+- `network/server.py`: group rooms now require host approval for every peer,
+  including the first one. Previously the approval gate was only triggered when
+  the room already had peers (`if existing and is_group`), so the first peer to
+  join an empty group room bypassed approval entirely.
 
 ### Changed
 - `network/server.py`: replaced deprecated `asyncio.get_event_loop()` with
