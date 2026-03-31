@@ -377,6 +377,10 @@ class StealthServer:
         # Send the current group room list to the newly connected peer.
         await self._send_roomlist_to(peer)
 
+        # In group rooms, broadcast updated peer list to all peers in the room.
+        if peer.room_id in self._group_rooms:
+            await self._broadcast_peerlist(peer.room_id)
+
         if self.on_peer_connected:
             await self.on_peer_connected(peer.alias, peer.fingerprint, peer.room_id)
 
@@ -392,6 +396,9 @@ class StealthServer:
             if not room_list:
                 self._rooms.pop(peer.room_id, None)
             logger.info("Peer disconnected: %s  room=%s", peer.alias, peer.room_id)
+            # Broadcast updated peer list after someone leaves the group room.
+            if peer.room_id in self._group_rooms:
+                await self._broadcast_peerlist(peer.room_id)
             if self.on_peer_disconnected:
                 await self.on_peer_disconnected(peer.alias, peer.room_id)
 
@@ -594,6 +601,25 @@ class StealthServer:
             await peer.ws.send(frame)
         except websockets.exceptions.ConnectionClosed:
             pass
+
+    async def _broadcast_peerlist(self, room_id: str) -> None:
+        """Send the updated peer list to all peers in a group room.
+
+        Each peer receives the aliases and fingerprints of all OTHER peers in
+        the room (not themselves, since they already know their own identity).
+        """
+        peers_in_room = list(self._rooms.get(room_id, []))
+        for peer in peers_in_room:
+            others = [
+                {"alias": p.alias, "fingerprint": p.fingerprint}
+                for p in peers_in_room
+                if p.id != peer.id
+            ]
+            frame = json.dumps({"type": "peerlist", "peers": others})
+            try:
+                await peer.ws.send(frame)
+            except websockets.exceptions.ConnectionClosed:
+                pass
 
     async def _broadcast_roomlist(self) -> None:
         """Send the updated group room list to all connected peers."""

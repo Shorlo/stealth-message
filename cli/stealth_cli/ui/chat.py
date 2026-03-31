@@ -760,12 +760,29 @@ class ChatScreen:
         async def on_roomlist(group_rooms: list[str]) -> None:
             self._update_known_groups(group_rooms)
 
+        async def on_peerlist(peers: list[dict[str, str]]) -> None:
+            state = self._room_states.get(room_id)
+            if state is None:
+                return
+            # Rebuild fingerprints: host (already known) + other peers from server.
+            fps: dict[str, str] = {}
+            if state.peer_alias and state.peer_fingerprint:
+                fps[state.peer_alias] = state.peer_fingerprint
+            for p in peers:
+                alias = p.get("alias", "")
+                fp = p.get("fingerprint", "")
+                if alias and fp:
+                    fps[alias] = fp
+            state.peer_fingerprints = fps
+            state.peer_aliases = list(fps.keys())
+
         client.on_message = on_message
         client.on_disconnected = on_disconnected
         client.on_pending = on_pending
         client.on_approved = on_approved
         client.on_move = on_move
         client.on_roomlist = on_roomlist
+        client.on_peerlist = on_peerlist
         return client
 
     def _make_send_fn(self, room_id: str) -> Callable[[str], object]:

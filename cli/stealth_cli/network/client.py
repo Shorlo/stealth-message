@@ -100,6 +100,10 @@ class StealthClient:
         # Called when the server sends the list of discoverable group rooms.
         # Signature: async def cb(group_rooms: list[str]) -> None
         self.on_roomlist: Callable[[list[str]], Awaitable[None]] | None = None
+        # Called when the server sends the list of peers in the current group room.
+        # Signature: async def cb(peers: list[dict[str, str]]) -> None
+        # Each dict has "alias" and "fingerprint" keys.
+        self.on_peerlist: Callable[[list[dict[str, str]]], Awaitable[None]] | None = None
 
     # ------------------------------------------------------------------ #
     # Peer identity (available after connect)                              #
@@ -423,6 +427,12 @@ class StealthClient:
             groups = msg.get("groups")
             if isinstance(groups, list) and self.on_roomlist:
                 await self.on_roomlist([str(r) for r in groups])
+        elif msg_type == "peerlist":
+            peers = msg.get("peers")
+            if isinstance(peers, list) and self.on_peerlist:
+                await self.on_peerlist(
+                    [p for p in peers if isinstance(p, dict)]
+                )
         elif msg_type == "error":
             logger.warning(
                 "Error from server: code=%s reason=%s",
