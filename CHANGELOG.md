@@ -9,6 +9,11 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Fixed
+- `ui/chat.py`: `/rooms` in join mode now queries the server live via
+  `query_rooms()` and shows all rooms with their real status (available,
+  occupied, group), matching the room list shown during the connection wizard.
+
 ### Changed
 - `network/server.py`: replaced deprecated `asyncio.get_event_loop()` with
   `asyncio.get_running_loop()` in `make_group_room()`.
