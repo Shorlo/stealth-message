@@ -557,10 +557,13 @@ class ChatScreen:
 
         if low == "/fp":
             state = self._room_states.get(self._active_room)
-            _print_fingerprint(
-                state.peer_alias if state else None,
-                state.peer_fingerprint if state else None,
-            )
+            if state and state.peer_fingerprints:
+                _print_fingerprints(state.peer_fingerprints)
+            else:
+                _print_fingerprint(
+                    state.peer_alias if state else None,
+                    state.peer_fingerprint if state else None,
+                )
             return False
 
         if low == "/help":
@@ -870,6 +873,18 @@ def _print_fingerprint(
             (fingerprint or "unknown", "yellow"),
         )
     )
+
+
+def _print_fingerprints(peer_fingerprints: dict[str, str]) -> None:
+    for alias, fp in peer_fingerprints.items():
+        console.print(
+            Text.assemble(
+                ("  Peer: ", "bold"),
+                (alias, "magenta"),
+                ("\n  FP:   ", "bold"),
+                (fp, "yellow"),
+            )
+        )
 
 
 def _print_rooms(

@@ -10,6 +10,8 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Fixed
+- `ui/chat.py`: `/fp` in a group room now shows the fingerprint of every peer
+  in the room, not just the first one.
 - `ui/chat.py`: `/rooms` in join mode now queries the server live via
   `query_rooms()` and shows all rooms with their real status (available,
   occupied, group), matching the room list shown during the connection wizard.
