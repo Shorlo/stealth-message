@@ -13,6 +13,11 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 - `ui/chat.py`: `/rooms` in join mode now queries the server live via
   `query_rooms()` and shows all rooms with their real status (available,
   occupied, group), matching the room list shown during the connection wizard.
+- `network/server.py`: group-room join approval now waits outside
+  `HANDSHAKE_TIMEOUT` (10 s). Previously the host's 60 s approval window was
+  inadvertently capped at 10 s, causing the server to close the connection
+  before the host could type `/allow <alias>`, which made every approval appear
+  as "join request denied by host" on the client side.
 
 ### Changed
 - `network/server.py`: replaced deprecated `asyncio.get_event_loop()` with

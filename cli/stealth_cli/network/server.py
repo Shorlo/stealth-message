@@ -330,8 +330,9 @@ class StealthServer:
             return
 
         peer: PeerSession | None = None
+        pending_entry: PendingPeer | None = None
         try:
-            peer = await asyncio.wait_for(
+            peer, pending_entry = await asyncio.wait_for(
                 self._do_handshake(ws, first_msg=first_msg), timeout=HANDSHAKE_TIMEOUT
             )
         except asyncio.TimeoutError:
@@ -346,6 +347,29 @@ class StealthServer:
             logger.debug("Handshake error: %s", exc)
             await self._safe_send_error(ws, 4002, "handshake error")
             return
+
+        # If this is a group-room join that requires host approval, wait here —
+        # outside the HANDSHAKE_TIMEOUT so the host has the full JOIN_REQUEST_TIMEOUT.
+        if pending_entry is not None:
+            try:
+                await asyncio.wait_for(
+                    pending_entry.event.wait(), timeout=JOIN_REQUEST_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                del self._pending[peer.id]
+                await self._safe_send_error(ws, 4008, "join request timed out")
+                return
+
+            del self._pending[peer.id]
+
+            if not pending_entry.approved:
+                await self._safe_send_error(ws, 4008, "join request denied by host")
+                return
+
+            try:
+                await ws.send(json.dumps({"type": "approved"}))
+            except websockets.exceptions.ConnectionClosed:
+                return
 
         self._rooms.setdefault(peer.room_id, []).append(peer)
         logger.info("Peer connected: %s  fp=%s  room=%s", peer.alias, peer.fingerprint, peer.room_id)
@@ -377,7 +401,7 @@ class StealthServer:
 
     async def _do_handshake(
         self, ws: ServerConnection, *, first_msg: dict[str, Any] | None = None
-    ) -> PeerSession:
+    ) -> tuple[PeerSession, PendingPeer | None]:
         if first_msg is not None:
             msg = first_msg
         else:
@@ -467,25 +491,11 @@ class StealthServer:
             if self.on_join_request:
                 await self.on_join_request(peer_alias, peer_fp, room_id)
 
-            # Wait for host decision.
-            try:
-                await asyncio.wait_for(pending.event.wait(), timeout=JOIN_REQUEST_TIMEOUT)
-            except asyncio.TimeoutError:
-                del self._pending[peer.id]
-                raise ProtocolError("join request timed out", 4008)
+            # Return the pending entry so _handle_connection can wait for approval
+            # outside the HANDSHAKE_TIMEOUT.
+            return peer, pending
 
-            del self._pending[peer.id]
-
-            if not pending.approved:
-                raise ProtocolError("join request denied by host", 4008)
-
-            # Approved — tell the peer.
-            try:
-                await ws.send(json.dumps({"type": "approved"}))
-            except websockets.exceptions.ConnectionClosed:
-                raise
-
-        return peer
+        return peer, None
 
     # ------------------------------------------------------------------ #
     # Message dispatch — §2, §3, §4                                        #
