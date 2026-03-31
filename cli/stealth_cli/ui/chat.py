@@ -53,7 +53,7 @@ from rich.table import Table
 from rich.text import Text
 
 from stealth_cli.exceptions import ProtocolError
-from stealth_cli.network.client import StealthClient
+from stealth_cli.network.client import StealthClient, query_rooms
 from stealth_cli.network.server import StealthServer
 
 logger = logging.getLogger(__name__)
@@ -572,7 +572,14 @@ class ChatScreen:
             return False
 
         if low == "/rooms":
-            _print_rooms(self._room_states, self._active_room)
+            if self._join_uri is not None:
+                server_rooms = await query_rooms(self._join_uri)
+                if server_rooms:
+                    _print_rooms_from_server(server_rooms, self._active_room)
+                else:
+                    _print_rooms(self._room_states, self._active_room)
+            else:
+                _print_rooms(self._room_states, self._active_room)
             return False
 
         if self._server is not None and low.startswith("/new "):
@@ -888,6 +895,47 @@ def _print_rooms(
             console.print(
                 f"[bold cyan]{marker}[/bold cyan] {room_label}"
                 f"  [dim]waiting for peer…[/dim]"
+            )
+    console.print()
+
+
+def _print_rooms_from_server(
+    server_rooms: list[dict[str, object]], active_room: str
+) -> None:
+    """Print room list as returned by query_rooms (live server data)."""
+    from typing import Any
+    console.print()
+    for room in server_rooms:
+        room_id = str(room.get("id", ""))
+        kind = str(room.get("kind", "1:1"))
+        peers = int(room.get("peers", 0))  # type: ignore[arg-type]
+        available = room.get("available", True)
+        marker = "▶" if room_id == active_room else " "
+        room_label = f"[bold]{room_id}[/bold]" if room_id == active_room else room_id
+        if kind == "group":
+            if room_id == active_room:
+                console.print(
+                    f"[bold cyan]{marker}[/bold cyan] {room_label}"
+                    f"  [yellow]group[/yellow]"
+                    + (f"  [dim]{peers} peer(s)[/dim]" if peers else "  [dim]empty[/dim]")
+                )
+            else:
+                console.print(
+                    f"[bold cyan]{marker}[/bold cyan] {room_label}"
+                    f"  [yellow]group[/yellow]"
+                    + (f"  [dim]{peers} peer(s)[/dim]" if peers else "  [dim]empty[/dim]")
+                    + "  [dim]/switch to join[/dim]"
+                )
+        elif available:
+            console.print(
+                f"[bold cyan]{marker}[/bold cyan] {room_label}"
+                f"  [dim]1:1[/dim]  [green]available[/green]"
+            )
+        else:
+            status = "[green]✓ connected[/green]" if room_id == active_room else "[dim]occupied[/dim]"
+            console.print(
+                f"[bold cyan]{marker}[/bold cyan] {room_label}"
+                f"  [dim]1:1[/dim]  {status}"
             )
     console.print()
 
