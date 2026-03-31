@@ -617,14 +617,19 @@ class ChatScreen:
                 if target in self._room_states:
                     self._active_room = target
                     state = self._room_states[target]
-                    status = (
-                        f"[bold magenta]{state.peer_alias}[/bold magenta] connected"
-                        if state.connected
-                        else "[dim]no peer yet[/dim]"
-                    )
                     console.print(
-                        f"[cyan]Active room:[/cyan] [bold]{target}[/bold]  {status}"
+                        f"[cyan]Active room:[/cyan] [bold]{target}[/bold]"
                     )
+                    if state.connected:
+                        peers = state.peer_aliases or (
+                            [state.peer_alias] if state.peer_alias else []
+                        )
+                        for p in peers:
+                            console.print(
+                                f"  [bold magenta]{p}[/bold magenta] connected"
+                            )
+                    else:
+                        console.print("  [dim]no peer yet[/dim]")
                 else:
                     console.print(
                         f"[red]Room not found:[/red] {target!r}  "

@@ -10,6 +10,8 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Fixed
+- `ui/chat.py`: `/switch <room>` in host mode now lists all connected peers one
+  per line instead of showing only the last one.
 - `ui/chat.py`: host-mode `on_disconnected` now also removes the peer from
   `peer_fingerprints`, preventing stale fingerprints from appearing in `/fp`
   after a peer moves to another room.
