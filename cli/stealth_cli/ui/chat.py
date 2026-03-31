@@ -226,10 +226,13 @@ class ChatScreen:
 
         async def on_disconnected(peer_alias: str, room_id: str) -> None:
             state = self._room_states.get(room_id)
-            if state and state.peer_aliases:
-                state.peer_aliases = [a for a in state.peer_aliases if a != peer_alias]
-                if not state.peer_aliases:
-                    state.connected = False
+            if state:
+                if state.peer_aliases:
+                    state.peer_aliases = [a for a in state.peer_aliases if a != peer_alias]
+                    if not state.peer_aliases:
+                        state.connected = False
+                if state.peer_fingerprints:
+                    state.peer_fingerprints.pop(peer_alias, None)
             await self._print_queue.put(
                 Text.assemble(
                     ("  ✗ ", "bold red"),

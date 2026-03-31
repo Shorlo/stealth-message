@@ -10,6 +10,9 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Fixed
+- `ui/chat.py`: host-mode `on_disconnected` now also removes the peer from
+  `peer_fingerprints`, preventing stale fingerprints from appearing in `/fp`
+  after a peer moves to another room.
 - `ui/chat.py`: `/fp` in a group room now shows the fingerprint of every peer
   in the room, not just the first one. This applies to both the host and to
   non-host peers: the server now broadcasts a `peerlist` message (alias +
