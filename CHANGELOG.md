@@ -9,6 +9,11 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Added
+- `docs/protocol.md`: documented `peerlist` message type (v0.6). Sent by the
+  server to all peers in a group room after each join/leave event; contains the
+  alias and fingerprint of every other peer currently in the room.
+
 ### Fixed
 - `ui/chat.py`: `/switch <room>` in host mode now lists all connected peers one
   per line instead of showing only the last one.

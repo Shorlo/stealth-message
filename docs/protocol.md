@@ -1,4 +1,4 @@
-# stealth-message — Wire Protocol v0.5
+# stealth-message — Wire Protocol v0.6
 
 **This document is the cross-platform contract.**
 All clients (CLI, macOS, Windows, Linux) must implement it exactly.
@@ -115,6 +115,22 @@ Client blocks until receiving `approved` or `error` (max 60 s server / 65 s clie
 
 Pre-approved peers (moved by host with `/move`) skip the pending state entirely.
 
+**After approval (and on every peer join/leave), server sends to all peers in the room:**
+```json
+{
+  "type": "peerlist",
+  "peers": [
+    { "alias": "Bob",   "fingerprint": "ABCD 1234 ... EF01" },
+    { "alias": "Carol", "fingerprint": "5678 DEAD ... BEEF" }
+  ]
+}
+```
+
+Each peer receives the list of **all other peers** currently in the room (not itself).
+Clients must update their local peer state on every `peerlist` received.
+- `alias`: display name of the peer.
+- `fingerprint`: 40 hex chars, groups of 4, separated by spaces.
+
 ---
 
 ## 4. Chat messages
@@ -222,6 +238,7 @@ Send before closing intentionally. The receiver closes its end after receiving `
 | message   | both               | id, payload, timestamp (+ sender in relay)   |
 | pending   | server → client    | —                                            |
 | approved  | server → client    | —                                            |
+| peerlist  | server → client    | peers                                        |
 | move      | server → client    | room                                         |
 | ping      | both               | —                                            |
 | pong      | both               | —                                            |
@@ -267,3 +284,4 @@ Send before closing intentionally. The receiver closes its end after receiving `
 | 0.3     | 2026-03 | Group rooms — pending/approved/move messages, error 4008, host approval |
 | 0.4     | 2026-03 | Room list push — `roomlist` message sent after connect and on group conversion |
 | 0.5     | 2026-03 | Pre-join discovery — `listrooms`/`roomsinfo`; `sender` field in group relay; ws:// auto-prefix |
+| 0.6     | 2026-04 | Group room peer awareness — `peerlist` message sent after approval and on every join/leave      |
