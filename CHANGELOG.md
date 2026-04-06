@@ -10,6 +10,22 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- `macos/Network/Message.swift`: `kick` case added to `IncomingFrame` enum
+  and parser (protocol.md §5 / v0.7).
+- `macos/Network/StealthClient.swift`: `onKicked` callback + `kick` frame
+  handler; `configure()` updated to include `onKicked`.
+- `macos/Network/StealthServer.swift`: `kickPeer(alias:reason:)` method —
+  sends `kick` frame and closes the peer connection.
+- `macos/UI/AppViewModel.swift`: `resetIdentity()` — deletes Keychain keys
+  and navigates back to setup screen (protocol.md §12).
+- `macos/UI/UnlockView.swift`: "Reset identity" option on unlock screen.
+- `macos/UI/HubView.swift`: hub screen redesign with identity card and
+  reset identity action.
+- `macos/UI/HostView.swift`: `/disconnect` button per peer; `kickPeer` wired
+  through `HostViewModel`; various layout and reliability fixes.
+- `macos/UI/JoinView.swift`: `onKicked` wired in `ClientViewModel` — shows
+  "Disconnected by host" banner and returns to hub.
+- `macos/ContentView.swift`: navigation updated to handle reset identity flow.
 - `cli/stealth_cli/config.py`: `delete_keypair()` — removes saved keys and
   config, reverting to first-use state.
 - `cli/stealth_cli/__main__.py`: `--reset` flag — deletes the saved identity

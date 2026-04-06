@@ -64,6 +64,8 @@ actor StealthClient {
     var onRoomList   : (@Sendable ([String]) async -> Void)?
     /// Called with the updated list of other peers in the current group room.
     var onPeerList   : (@Sendable ([WirePeerInfo]) async -> Void)?
+    /// `(reason)` — called when the host forcibly disconnects this client (kick).
+    var onKicked     : (@Sendable (String) async -> Void)?
 
     // MARK: - Callback configuration
 
@@ -76,7 +78,8 @@ actor StealthClient {
         onApproved:   (@Sendable () async -> Void)? = nil,
         onMove:       (@Sendable (String) async -> Void)? = nil,
         onRoomList:   (@Sendable ([String]) async -> Void)? = nil,
-        onPeerList:   (@Sendable ([WirePeerInfo]) async -> Void)? = nil
+        onPeerList:   (@Sendable ([WirePeerInfo]) async -> Void)? = nil,
+        onKicked:     (@Sendable (String) async -> Void)? = nil
     ) {
         if let cb = onMessage     { self.onMessage     = cb }
         if let cb = onDisconnected { self.onDisconnected = cb }
@@ -85,6 +88,7 @@ actor StealthClient {
         if let cb = onMove        { self.onMove        = cb }
         if let cb = onRoomList    { self.onRoomList    = cb }
         if let cb = onPeerList    { self.onPeerList    = cb }
+        if let cb = onKicked      { self.onKicked      = cb }
     }
 
     // MARK: - Init
@@ -305,6 +309,15 @@ actor StealthClient {
                 pongStreamContinuation?.yield(())
                 pongStreamContinuation?.finish()
                 pongStreamContinuation = nil
+
+            case .kick(let reason):
+                // Host forcibly disconnected us — display reason then close (protocol §5).
+                await onKicked?(reason)
+                wsTask?.cancel(with: .normalClosure, reason: nil)
+                wsTask = nil
+                receiveLoopTask?.cancel()
+                pingLoopTask?.cancel()
+                return
 
             case .bye:
                 wsTask?.cancel(with: .normalClosure, reason: nil)

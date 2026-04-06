@@ -56,6 +56,7 @@ enum IncomingFrame: Sendable {
     case message(id: String, payload: String, timestamp: Int64, sender: String?)
     case peerList(peers: [WirePeerInfo])
     case move(room: String)
+    case kick(reason: String)
     case pending
     case approved
     case ping
@@ -115,6 +116,11 @@ extension IncomingFrame {
             struct P: Decodable { let code: Int?; let reason: String? }
             let p = try? d.decode(P.self, from: data)
             return .error(code: p?.code ?? 4002, reason: p?.reason ?? "unknown error")
+
+        case "kick":
+            struct P: Decodable { let reason: String? }
+            let reason = (try? d.decode(P.self, from: data))?.reason ?? "disconnected by host"
+            return .kick(reason: reason)
 
         case "pending":  return .pending
         case "approved": return .approved

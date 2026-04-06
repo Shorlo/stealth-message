@@ -21,9 +21,14 @@ struct ContentView: View {
                 case .hub:
                     HubView(app: app)
                 case .hosting:
-                    HostView(app: app)
+                    // Guaranteed non-nil: AppViewModel.goHosting() always creates it.
+                    if let vm = app.hostViewModel {
+                        HostView(vm: vm, app: app)
+                    }
                 case .joining:
-                    JoinView(app: app)
+                    if let vm = app.clientViewModel {
+                        JoinView(vm: vm, app: app)
+                    }
                 }
             }
         }

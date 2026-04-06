@@ -171,6 +171,14 @@ actor StealthServer {
 
     // MARK: - Public room management
 
+    /// Returns all currently known room IDs (allowed + occupied) with their kind.
+    var allRoomInfos: [(id: String, isGroup: Bool, peerCount: Int)] {
+        let ids = Set(allowedRooms ?? []).union(Set(rooms.keys))
+        return ids.sorted().map { id in
+            (id: id, isGroup: groupRooms.contains(id), peerCount: rooms[id]?.count ?? 0)
+        }
+    }
+
     /// Adds a room (or converts existing) at runtime.
     func addRoom(_ id: String, group: Bool = false) {
         let rid = String(id.prefix(64))
@@ -216,6 +224,21 @@ actor StealthServer {
     }
 
     // MARK: - Peer movement
+
+    /// Sends a `kick` frame to the peer and closes the connection (protocol §5).
+    func kickPeer(alias: String) throws {
+        guard let peer = findPeer(alias: alias) else {
+            throw ProtocolError.malformed("No connected peer with alias '\(alias)'")
+        }
+        let frame = wireJSON(["type": "kick", "reason": "disconnected by host"]) ?? "{}"
+        sendTextSync(frame, to: peer.connection)
+        // Brief delay to let the frame flush before cancelling.
+        peer.connection.cancel()
+        // Remove from rooms immediately — onPeerDisconnected fires when NWConnection closes.
+        for key in rooms.keys {
+            rooms[key]?.removeAll { $0.alias == alias }
+        }
+    }
 
     /// Sends a `move` frame to a peer and pre-approves them for `targetRoom`.
     func movePeer(alias: String, to targetRoom: String) async throws {

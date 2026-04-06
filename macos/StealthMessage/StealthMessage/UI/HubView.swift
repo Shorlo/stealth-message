@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HubView: View {
     var app: AppViewModel
+    @State private var showResetConfirm = false
 
     var body: some View {
         VStack(spacing: 36) {
@@ -36,45 +37,92 @@ struct HubView: View {
                     Button {
                         app.goHosting()
                     } label: {
-                        modeLabel(icon: "server.rack", title: "Host Server")
+                        modeLabel(
+                            icon: "server.rack",
+                            title: app.hostViewModel?.isRunning == true ? "Resume Server" : "Host Server",
+                            badge: app.hostViewModel?.isRunning == true
+                        )
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
 
-                    Text("Start a chat server\nfor others to join")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                    if app.hostViewModel?.isRunning == true {
+                        Text("Server running · \(app.hostViewModel?.peers.count ?? 0) peer(s)")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("Start a chat server\nfor others to join")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
 
                 VStack(spacing: 8) {
                     Button {
                         app.goJoining()
                     } label: {
-                        modeLabel(icon: "network", title: "Join Server")
+                        modeLabel(
+                            icon: "network",
+                            title: app.clientViewModel?.isConnected == true ? "Resume Chat" : "Join Server",
+                            badge: app.clientViewModel?.isConnected == true
+                        )
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
 
-                    Text("Connect to an existing\nchat server")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                    if app.clientViewModel?.isConnected == true {
+                        Text("Connected · \(app.clientViewModel?.selectedRoom ?? "")")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("Connect to an existing\nchat server")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
             }
         }
         .padding(40)
         .frame(minWidth: 540, minHeight: 440)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Reset identity…") { showResetConfirm = true }
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+            }
+        }
+        .confirmationDialog(
+            "Reset identity?",
+            isPresented: $showResetConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete keypair and start over", role: .destructive) {
+                Task { await app.resetIdentity() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes your private key and fingerprint. Any peer who had your old fingerprint must re-verify the new one.")
+        }
     }
 
     @ViewBuilder
-    private func modeLabel(icon: String, title: String) -> some View {
+    private func modeLabel(icon: String, title: String, badge: Bool = false) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 32))
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: icon)
+                    .font(.system(size: 32))
+                if badge {
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 10, height: 10)
+                        .offset(x: 4, y: -4)
+                }
+            }
             Text(title)
                 .font(.headline)
         }
-        .frame(width: 150, height: 90)
+        .frame(width: 160, height: 90)
     }
 }

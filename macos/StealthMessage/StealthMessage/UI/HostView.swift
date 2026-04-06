@@ -1,6 +1,14 @@
 import SwiftUI
 import Darwin
 
+// MARK: - Supporting types
+
+struct RoomInfo: Identifiable, Sendable {
+    let id: String          // room name
+    var isGroup: Bool
+    var peerCount: Int
+}
+
 // MARK: - ViewModel
 
 /// All state and logic for the host (server) side.
@@ -24,9 +32,27 @@ final class HostViewModel: @unchecked Sendable {
     // MARK: Live data
     var peers: [ConnectedPeer] = []
     var pendingRequests: [JoinRequest] = []
-    var messages: [ChatMessage] = []
+    /// Messages keyed by room ID — only the active room is displayed.
+    var messagesByRoom: [String: [ChatMessage]] = [:]
+    /// Unread count for rooms that are not currently active.
+    var unreadByRoom: [String: Int] = [:]
+    var allRooms: [RoomInfo] = []          // live room list while running
+
+    /// Messages for the room the host is currently viewing.
+    var activeRoomMessages: [ChatMessage] {
+        messagesByRoom[activeRoom] ?? []
+    }
+
+    // MARK: Active room (host sends here)
+    var activeRoom: String = ""
+
+    // MARK: Message input
     var inputText: String = ""
-    var sendToAlias: String = ""  // "" = broadcast to all
+
+    // MARK: Runtime room management (while running)
+    var newRoomNameRuntime: String = ""
+    var newGroupRoomNameRuntime: String = ""
+    var showAddRoomSheet: Bool = false
 
     // MARK: Private
     private var server: StealthServer?
@@ -48,7 +74,21 @@ final class HostViewModel: @unchecked Sendable {
         !isRunning && (!oneToOneRooms.isEmpty || !groupRooms.isEmpty)
     }
 
-    // MARK: - Room management
+    /// Peers in the currently active room only.
+    var peersInActiveRoom: [ConnectedPeer] {
+        peers.filter { $0.roomID == activeRoom }
+    }
+
+    /// All room IDs (for move destination picker).
+    var allRoomIDs: [String] { allRooms.map(\.id) }
+
+    /// Selects a room and clears its unread badge.
+    func selectRoom(_ id: String) {
+        activeRoom = id
+        unreadByRoom[id] = 0
+    }
+
+    // MARK: - Pre-start room config
 
     func addRoom() {
         let name = newRoomName.trimmingCharacters(in: .whitespaces)
@@ -57,9 +97,7 @@ final class HostViewModel: @unchecked Sendable {
         newRoomName = ""
     }
 
-    func removeRoom(_ name: String) {
-        oneToOneRooms.removeAll { $0 == name }
-    }
+    func removeRoom(_ name: String) { oneToOneRooms.removeAll { $0 == name } }
 
     func addGroupRoom() {
         let name = newGroupRoomName.trimmingCharacters(in: .whitespaces)
@@ -68,8 +106,22 @@ final class HostViewModel: @unchecked Sendable {
         newGroupRoomName = ""
     }
 
-    func removeGroupRoom(_ name: String) {
-        groupRooms.removeAll { $0 == name }
+    func removeGroupRoom(_ name: String) { groupRooms.removeAll { $0 == name } }
+
+    // MARK: - Runtime room management
+
+    func addRoomAtRuntime(group: Bool = false) async {
+        let name = newRoomNameRuntime.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        newRoomNameRuntime = ""
+        await server?.addRoom(name, group: group)
+        await refreshRooms()
+    }
+
+    func makeGroupRoom(_ roomID: String) async {
+        await server?.makeGroupRoom(roomID)
+        await refreshRooms()
+        systemMessage("Room '\(roomID)' is now a group room", room: roomID)
     }
 
     // MARK: - Server lifecycle
@@ -87,27 +139,30 @@ final class HostViewModel: @unchecked Sendable {
             groupRooms: groupRooms.isEmpty ? nil : groupRooms
         )
 
-        // Wire callbacks via the single-hop configure() method.
         await srv.configure(
             onPeerConnected: { [weak self] peerAlias, fp, roomID in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     self.peers.append(ConnectedPeer(alias: peerAlias, fingerprint: fp, roomID: roomID))
-                    self.systemMessage("\(peerAlias) joined \(roomID)")
+                    self.systemMessage("\(peerAlias) joined \(roomID)", room: roomID)
+                    await self.refreshRooms()
                 }
             },
             onMessage: { [weak self] peerAlias, text, roomID in
                 Task { @MainActor [weak self] in
-                    self?.messages.append(ChatMessage(
-                        sender: peerAlias, text: text, timestamp: Date(), isOwn: false
-                    ))
+                    guard let self else { return }
+                    self.appendMessage(
+                        ChatMessage(sender: peerAlias, text: text, timestamp: Date(), isOwn: false),
+                        to: roomID
+                    )
                 }
             },
             onPeerDisconnected: { [weak self] peerAlias, roomID in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     self.peers.removeAll { $0.alias == peerAlias && $0.roomID == roomID }
-                    self.systemMessage("\(peerAlias) left \(roomID)")
+                    self.systemMessage("\(peerAlias) left \(roomID)", room: roomID)
+                    await self.refreshRooms()
                 }
             },
             onJoinRequest: { [weak self] peerAlias, fp, roomID in
@@ -121,10 +176,12 @@ final class HostViewModel: @unchecked Sendable {
 
         do {
             let port = try await srv.start(on: portNum)
-            server    = srv
+            server     = srv
             serverPort = port
-            localIP   = hostLocalIPAddress()
-            isRunning = true
+            localIP    = hostLocalIPAddress()
+            isRunning  = true
+            await refreshRooms()
+            activeRoom = allRooms.first?.id ?? ""
         } catch {
             errorMessage = "Could not start server: \(error.localizedDescription)"
         }
@@ -136,7 +193,21 @@ final class HostViewModel: @unchecked Sendable {
         isRunning = false
         peers.removeAll()
         pendingRequests.removeAll()
-        systemMessage("Server stopped")
+        allRooms.removeAll()
+        messagesByRoom.removeAll()
+        unreadByRoom.removeAll()
+        activeRoom = ""
+    }
+
+    // MARK: - Rooms
+
+    private func refreshRooms() async {
+        guard let srv = server else { return }
+        let infos = await srv.allRoomInfos
+        allRooms = infos.map { RoomInfo(id: $0.id, isGroup: $0.isGroup, peerCount: $0.peerCount) }
+        if !allRooms.contains(where: { $0.id == activeRoom }) {
+            activeRoom = allRooms.first?.id ?? ""
+        }
     }
 
     // MARK: - Join approval
@@ -159,27 +230,64 @@ final class HostViewModel: @unchecked Sendable {
         }
     }
 
-    // MARK: - Messaging
+    // MARK: - Peer management
 
-    func sendMessage() async {
-        let text = inputText.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty, let srv = server else { return }
-        inputText = ""
-
+    func kickPeer(_ peer: ConnectedPeer) async {
         do {
-            if sendToAlias.isEmpty {
-                await srv.broadcast(text)
-            } else {
-                try await srv.sendTo(alias: sendToAlias, plaintext: text)
-            }
-            messages.append(ChatMessage(sender: alias, text: text, timestamp: Date(), isOwn: true))
+            try await server?.kickPeer(alias: peer.alias)
+            let room = peer.roomID
+            peers.removeAll { $0.id == peer.id }
+            systemMessage("\(peer.alias) was kicked", room: room)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func systemMessage(_ text: String) {
-        messages.append(ChatMessage(sender: "•", text: text, timestamp: Date(), isOwn: false))
+    func movePeer(_ peer: ConnectedPeer, to roomID: String) async {
+        do {
+            try await server?.movePeer(alias: peer.alias, to: roomID)
+            systemMessage("Asked \(peer.alias) to move to \(roomID)", room: peer.roomID)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Messaging
+
+    func sendMessage() async {
+        let text = inputText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, let srv = server, !activeRoom.isEmpty else { return }
+        inputText = ""
+
+        do {
+            try await srv.sendToRoom(activeRoom, plaintext: text)
+        } catch { /* room may be empty — still record locally */ }
+        appendMessage(
+            ChatMessage(sender: alias, text: text, timestamp: Date(), isOwn: true),
+            to: activeRoom,
+            countsAsUnread: false
+        )
+    }
+
+    /// Appends a message to `room`'s list. Increments the unread badge only when
+    /// `countsAsUnread` is true and the room is not the one currently being viewed.
+    private func appendMessage(_ msg: ChatMessage, to room: String, countsAsUnread: Bool = true) {
+        if messagesByRoom[room] == nil { messagesByRoom[room] = [] }
+        messagesByRoom[room]?.append(msg)
+        if countsAsUnread && room != activeRoom {
+            unreadByRoom[room, default: 0] += 1
+        }
+    }
+
+    /// Posts an informational system message to `room` (defaults to `activeRoom`).
+    /// Never increments the unread badge.
+    private func systemMessage(_ text: String, room: String? = nil) {
+        let target = room ?? activeRoom
+        appendMessage(
+            ChatMessage(sender: "•", text: text, timestamp: Date(), isOwn: false),
+            to: target,
+            countsAsUnread: false
+        )
     }
 }
 
@@ -219,13 +327,8 @@ nonisolated func hostLocalIPAddress() -> String {
 // MARK: - Root view
 
 struct HostView: View {
-    @State private var vm: HostViewModel
+    @Bindable var vm: HostViewModel
     var app: AppViewModel
-
-    init(app: AppViewModel) {
-        self.app = app
-        _vm = State(initialValue: HostViewModel(app: app))
-    }
 
     var body: some View {
         Group {
@@ -242,16 +345,12 @@ struct HostView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 if vm.isRunning {
-                    Button("Stop") {
-                        Task { await vm.stopServer() }
-                    }
-                    .foregroundStyle(.red)
+                    Button("Stop") { Task { await vm.stopServer() } }
+                        .foregroundStyle(.red)
                 } else {
-                    Button("Start Server") {
-                        Task { await vm.startServer() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!vm.canStart)
+                    Button("Start Server") { Task { await vm.startServer() } }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!vm.canStart)
                 }
             }
         }
@@ -282,8 +381,7 @@ private struct ServerConfigView: View {
                         Spacer()
                         if vm.oneToOneRooms.count > 1 {
                             Button("Remove") { vm.removeRoom(room) }
-                                .foregroundStyle(.red)
-                                .buttonStyle(.borderless)
+                                .foregroundStyle(.red).buttonStyle(.borderless)
                         }
                     }
                 }
@@ -307,8 +405,7 @@ private struct ServerConfigView: View {
                         Label(room, systemImage: "person.3")
                         Spacer()
                         Button("Remove") { vm.removeGroupRoom(room) }
-                            .foregroundStyle(.red)
-                            .buttonStyle(.borderless)
+                            .foregroundStyle(.red).buttonStyle(.borderless)
                     }
                 }
                 HStack {
@@ -326,9 +423,7 @@ private struct ServerConfigView: View {
             }
 
             if let err = vm.errorMessage {
-                Section {
-                    Text(err).foregroundStyle(.red)
-                }
+                Section { Text(err).foregroundStyle(.red) }
             }
         }
         .formStyle(.grouped)
@@ -343,18 +438,20 @@ private struct RunningServerView: View {
 
     var body: some View {
         HSplitView {
-            sidePanel
+            leftPanel
                 .frame(minWidth: 240, idealWidth: 280, maxWidth: 360)
-            chatPanel
+            rightPanel
         }
-        .frame(minWidth: 640, minHeight: 440)
+        .frame(minWidth: 680, minHeight: 480)
     }
 
-    // MARK: Side panel
+    // MARK: Left panel
 
-    private var sidePanel: some View {
+    private var leftPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             serverInfoHeader
+            Divider()
+            roomsSection
             Divider()
             peersSection
             if !vm.pendingRequests.isEmpty {
@@ -374,41 +471,80 @@ private struct RunningServerView: View {
             Text(vm.serverURL)
                 .font(.system(.callout, design: .monospaced))
                 .textSelection(.enabled)
-            Text("Share this address with peers")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            Text("Share with peers").font(.caption2).foregroundStyle(.secondary)
         }
         .padding()
     }
 
+    // MARK: Rooms
+
+    private var roomsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Rooms")
+                    .font(.caption.bold()).foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    vm.showAddRoomSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 6)
+
+            ForEach(vm.allRooms) { room in
+                RoomRowView(
+                    room: room,
+                    isActive: room.id == vm.activeRoom,
+                    unreadCount: vm.unreadByRoom[room.id, default: 0]
+                ) {
+                    vm.selectRoom(room.id)
+                } onMakeGroup: {
+                    if !room.isGroup {
+                        Task { await vm.makeGroupRoom(room.id) }
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $vm.showAddRoomSheet) {
+            AddRoomSheet(vm: vm)
+        }
+    }
+
+    // MARK: Peers
+
     private var peersSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Connected (\(vm.peers.count))")
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
-                .padding(.horizontal)
-                .padding(.vertical, 6)
+            Text("Peers (\(vm.peers.count))")
+                .font(.caption.bold()).foregroundStyle(.secondary)
+                .padding(.horizontal).padding(.vertical, 6)
 
             if vm.peers.isEmpty {
                 Text("No peers connected yet")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .font(.caption).foregroundStyle(.tertiary)
                     .padding(.horizontal)
             } else {
                 ForEach(vm.peers) { peer in
-                    PeerRowView(peer: peer)
+                    PeerRowView(peer: peer, allRooms: vm.allRoomIDs) { room in
+                        Task { await vm.movePeer(peer, to: room) }
+                    } onKick: {
+                        Task { await vm.kickPeer(peer) }
+                    }
                 }
             }
         }
     }
 
+    // MARK: Pending
+
     private var pendingSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Awaiting approval (\(vm.pendingRequests.count))")
-                .font(.caption.bold())
-                .foregroundStyle(.orange)
-                .padding(.horizontal)
-                .padding(.vertical, 6)
+                .font(.caption.bold()).foregroundStyle(.orange)
+                .padding(.horizontal).padding(.vertical, 6)
 
             ForEach(vm.pendingRequests) { req in
                 HStack(spacing: 8) {
@@ -417,41 +553,31 @@ private struct RunningServerView: View {
                         Text(req.fingerprint)
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Text("→ \(req.roomID)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                        Text("→ \(req.roomID)").font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
                     VStack(spacing: 4) {
-                        Button("✓") { Task { await vm.approve(req) } }
-                            .foregroundStyle(.green)
-                        Button("✕") { Task { await vm.deny(req) } }
-                            .foregroundStyle(.red)
+                        Button("✓") { Task { await vm.approve(req) } }.foregroundStyle(.green)
+                        Button("✕") { Task { await vm.deny(req) } }.foregroundStyle(.red)
                     }
-                    .buttonStyle(.borderless)
-                    .font(.headline)
+                    .buttonStyle(.borderless).font(.headline)
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 4)
+                .padding(.horizontal).padding(.vertical, 4)
             }
         }
     }
 
-    // MARK: Chat panel
+    // MARK: Right panel (chat)
 
-    private var chatPanel: some View {
+    private var rightPanel: some View {
         VStack(spacing: 0) {
             messagesArea
             Divider()
             sendBar
             if let err = vm.errorMessage {
-                Text(err)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal)
-                    .padding(.bottom, 4)
+                Text(err).font(.caption).foregroundStyle(.red)
+                    .padding(.horizontal).padding(.bottom, 4)
             }
         }
     }
@@ -460,15 +586,21 @@ private struct RunningServerView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(vm.messages) { msg in
+                    ForEach(vm.activeRoomMessages) { msg in
                         MessageBubble(message: msg).id(msg.id)
                     }
                 }
                 .padding()
             }
-            .onChange(of: vm.messages.count) { _, _ in
-                if let last = vm.messages.last {
+            .onChange(of: vm.activeRoomMessages.count) { _, _ in
+                if let last = vm.activeRoomMessages.last {
                     withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
+            }
+            .onChange(of: vm.activeRoom) { _, _ in
+                // Scroll to bottom when switching rooms
+                if let last = vm.activeRoomMessages.last {
+                    proxy.scrollTo(last.id, anchor: .bottom)
                 }
             }
         }
@@ -476,10 +608,10 @@ private struct RunningServerView: View {
 
     private var sendBar: some View {
         HStack(spacing: 8) {
-            Picker("To", selection: $vm.sendToAlias) {
-                Text("All peers").tag("")
-                ForEach(vm.peers) { peer in
-                    Text(peer.alias).tag(peer.alias)
+            // Active room picker
+            Picker("Room", selection: $vm.activeRoom) {
+                ForEach(vm.allRooms) { room in
+                    Text(room.id).tag(room.id)
                 }
             }
             .labelsHidden()
@@ -490,39 +622,173 @@ private struct RunningServerView: View {
                 .onSubmit { Task { await vm.sendMessage() } }
 
             Button("Send") { Task { await vm.sendMessage() } }
-                .disabled(
-                    vm.inputText.trimmingCharacters(in: .whitespaces).isEmpty ||
-                    vm.peers.isEmpty
-                )
+                .disabled(vm.inputText.trimmingCharacters(in: .whitespaces).isEmpty)
         }
         .padding(8)
     }
 }
 
-// MARK: - Peer row
+// MARK: - Room row
+
+private struct RoomRowView: View {
+    let room: RoomInfo
+    let isActive: Bool
+    let unreadCount: Int
+    let onSelect: () -> Void
+    let onMakeGroup: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 6) {
+                // Active indicator
+                Circle()
+                    .fill(isActive ? Color.accentColor : Color.clear)
+                    .frame(width: 6, height: 6)
+
+                Image(systemName: room.isGroup ? "person.3" : "person.2")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text(room.id)
+                    .font(isActive ? .callout.bold() : .callout)
+                    .foregroundStyle(isActive ? .primary : .secondary)
+
+                Spacer()
+
+                // Unread badge (takes precedence over peer count)
+                if unreadCount > 0 {
+                    Text("\(unreadCount)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor, in: Capsule())
+                } else {
+                    Text("\(room.peerCount)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                if !room.isGroup {
+                    // Context menu to convert
+                    Menu {
+                        Button("Convert to group room") { onMakeGroup() }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.caption2)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .frame(width: 20)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Peer row with actions
 
 private struct PeerRowView: View {
     let peer: ConnectedPeer
+    let allRooms: [String]
+    let onMove: (String) -> Void
+    let onKick: () -> Void
+
+    @State private var showMoveMenu = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(peer.alias).font(.callout.bold())
+            HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(peer.alias).font(.callout.bold())
+                    Text(peer.roomID)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
-                Text(peer.roomID)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.quaternary, in: Capsule())
+                // Move peer menu
+                let destinations = allRooms.filter { $0 != peer.roomID }
+                if !destinations.isEmpty {
+                    Menu {
+                        ForEach(destinations, id: \.self) { room in
+                            Button("Move to \(room)") { onMove(room) }
+                        }
+                    } label: {
+                        Label("Move", systemImage: "arrow.right")
+                            .font(.caption)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .frame(maxWidth: 70)
+                }
+                // Kick button
+                Button(role: .destructive) {
+                    onKick()
+                } label: {
+                    Image(systemName: "xmark.circle")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.borderless)
+                .help("Disconnect \(peer.alias)")
             }
             Text(peer.fingerprint)
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .lineLimit(1).truncationMode(.middle)
         }
         .padding(.horizontal)
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Add room sheet
+
+private struct AddRoomSheet: View {
+    @Bindable var vm: HostViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Add Room").font(.title2.bold())
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("1:1 Room").font(.caption.bold()).foregroundStyle(.secondary)
+                HStack {
+                    TextField("Room name…", text: $vm.newRoomNameRuntime)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Add") {
+                        Task {
+                            await vm.addRoomAtRuntime(group: false)
+                            dismiss()
+                        }
+                    }
+                    .disabled(vm.newRoomNameRuntime.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Group Room").font(.caption.bold()).foregroundStyle(.secondary)
+                HStack {
+                    TextField("Group room name…", text: $vm.newRoomNameRuntime)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Add") {
+                        Task {
+                            await vm.addRoomAtRuntime(group: true)
+                            dismiss()
+                        }
+                    }
+                    .disabled(vm.newRoomNameRuntime.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+            }
+        }
+        .padding(24)
+        .frame(width: 360)
     }
 }

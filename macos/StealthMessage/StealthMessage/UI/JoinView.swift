@@ -143,6 +143,14 @@ final class ClientViewModel: @unchecked Sendable {
                 Task { @MainActor [weak self] in
                     self?.groupPeers = peers
                 }
+            },
+            onKicked: { [weak self] reason in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.isConnected  = false
+                    self.errorMessage = "Kicked by host: \(reason)"
+                    self.systemMessage("You were kicked by the host: \(reason)")
+                }
             }
         )
 
@@ -170,6 +178,27 @@ final class ClientViewModel: @unchecked Sendable {
         statusMessage = ""
     }
 
+    // MARK: - Switch room
+
+    /// Cleanly disconnects from the current room and reconnects to `roomID`
+    /// on the same server. Preserves chat history with a system message separator.
+    func switchRoom(to roomID: String) async {
+        guard roomID != selectedRoom, !isConnecting else { return }
+        isConnecting  = true
+        statusMessage = "Switching to \(roomID)…"
+
+        await client?.disconnect()
+        client          = nil
+        isConnected     = false
+        isPending       = false
+        peerAlias       = nil
+        peerFingerprint = nil
+        groupPeers      = []
+
+        systemMessage("──── Switching to room: \(roomID) ────")
+        await connect(roomID: roomID)
+    }
+
     // MARK: - Send
 
     func sendMessage() async {
@@ -193,13 +222,8 @@ final class ClientViewModel: @unchecked Sendable {
 // MARK: - Root view
 
 struct JoinView: View {
-    @State private var vm: ClientViewModel
+    @Bindable var vm: ClientViewModel
     var app: AppViewModel
-
-    init(app: AppViewModel) {
-        self.app = app
-        _vm = State(initialValue: ClientViewModel(app: app))
-    }
 
     var body: some View {
         Group {
@@ -221,8 +245,35 @@ struct JoinView: View {
             }
             if vm.isConnected {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Disconnect") { Task { await vm.disconnect() } }
-                        .foregroundStyle(.red)
+                    Menu {
+                        // Group rooms the server advertised
+                        if !vm.groupRoomList.isEmpty {
+                            Section("Switch Room") {
+                                ForEach(vm.groupRoomList, id: \.self) { room in
+                                    Button {
+                                        Task { await vm.switchRoom(to: room) }
+                                    } label: {
+                                        if room == vm.selectedRoom {
+                                            Label(room, systemImage: "checkmark")
+                                        } else {
+                                            Text(room)
+                                        }
+                                    }
+                                    .disabled(room == vm.selectedRoom)
+                                }
+                                Divider()
+                            }
+                        }
+                        Button("Browse all rooms…") {
+                            Task { await vm.disconnect(); await vm.browseRooms() }
+                        }
+                        Divider()
+                        Button("Disconnect", role: .destructive) {
+                            Task { await vm.disconnect() }
+                        }
+                    } label: {
+                        Label(vm.selectedRoom, systemImage: "door.right.hand.open")
+                    }
                 }
             }
         }

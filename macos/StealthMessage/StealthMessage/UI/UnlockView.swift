@@ -48,6 +48,7 @@ final class UnlockViewModel {
 
 struct UnlockView: View {
     @State private var vm = UnlockViewModel()
+    @State private var showResetConfirm = false
     var app: AppViewModel
 
     var body: some View {
@@ -87,8 +88,28 @@ struct UnlockView: View {
                 .controlSize(.large)
                 .disabled(vm.passphrase.isEmpty)
             }
+
+            Divider().frame(maxWidth: 260)
+
+            Button("Reset identity…") {
+                showResetConfirm = true
+            }
+            .foregroundStyle(.secondary)
+            .font(.callout)
+            .confirmationDialog(
+                "Reset identity?",
+                isPresented: $showResetConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Delete keypair and start over", role: .destructive) {
+                    Task { await app.resetIdentity() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This permanently deletes your private key and fingerprint. Any peer who had your old fingerprint must re-verify the new one.")
+            }
         }
         .padding(40)
-        .frame(minWidth: 400, minHeight: 360)
+        .frame(minWidth: 400, minHeight: 420)
     }
 }
