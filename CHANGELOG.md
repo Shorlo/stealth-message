@@ -10,6 +10,10 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- `cli/stealth_cli/config.py`: `delete_keypair()` — removes saved keys and
+  config, reverting to first-use state.
+- `cli/stealth_cli/__main__.py`: `--reset` flag — deletes the saved identity
+  and runs the setup wizard to create a new alias and keypair.
 - `docs/protocol.md` v0.7: new `kick` message (server → client) for
   host-initiated peer disconnect. Sections renumbered; `kick` added to
   message type reference table.

@@ -99,6 +99,11 @@ def _parse_args() -> argparse.Namespace:
         help="Room to join (join mode only, default: 'default')",
     )
     parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Delete the saved keypair and start the setup wizard to create a new identity",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging",
@@ -121,6 +126,16 @@ async def _async_main() -> int:
     if args.manual:
         _print_manual()
         return 0
+
+    # ------------------------------------------------------------------ #
+    # Step 0 — --reset: wipe keypair and force the setup wizard.          #
+    # ------------------------------------------------------------------ #
+    if args.reset:
+        if config.is_first_use():
+            console.print("[dim]No saved identity found — nothing to reset.[/dim]")
+        else:
+            config.delete_keypair()
+            console.print("[yellow]Identity deleted.[/yellow] Starting setup wizard…\n")
 
     # ------------------------------------------------------------------ #
     # Step 1 — First use: run the setup wizard.                           #

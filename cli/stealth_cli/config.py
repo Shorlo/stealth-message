@@ -121,3 +121,12 @@ def load_armored_private() -> str:
 def load_armored_public() -> str:
     """Read the ASCII-armored public key from disk."""
     return public_key_file().read_text(encoding="utf-8")
+
+
+def delete_keypair() -> None:
+    """Delete the stored keypair and config, reverting to first-use state."""
+    for path in (private_key_file(), public_key_file(), config_file()):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
