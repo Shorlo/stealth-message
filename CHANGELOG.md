@@ -16,11 +16,37 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 - `macos/`: initial Xcode project scaffold for the native macOS client
   (SwiftUI, Swift 5.9+, macOS 13.0+). Includes ObjectivePGP 0.99.4 via SPM
   and Keychain Sharing entitlement configured.
-- `macos/Crypto/`: crypto layer scaffold — `CryptoError`, `KeychainStore`,
-  `PGPKeyManager` actor (RSA-4096 keygen, sign-then-encrypt, decrypt-then-verify,
-  fingerprint formatting, Keychain storage).
-- `macos/CLAUDE.md`: updated with full implementation state, ObjectivePGP 0.99.4
-  API reference, and pending tasks for continuation from Xcode.
+- `macos/Crypto/`: crypto layer — `CryptoError`, `KeychainStore`, `PGPKeyManager`
+  actor (RSA-4096 keygen, sign-then-encrypt, decrypt-then-verify, fingerprint
+  formatting, Keychain storage).
+- `macos/Network/`: full network layer — `Message.swift` (wire types, frame
+  parser, base64url helpers, `withDeadline`), `StealthClient` actor
+  (`URLSessionWebSocketTask`, all protocol.md message types, group room approval
+  flow, ping/pong keepalive), `StealthServer` actor (`NWListener`/
+  `NWProtocolWebSocket`, room management, host approval, peer relay, `peerlist`
+  broadcast).
+- `macos/UI/`: full UI layer — `AppViewModel` (navigation state machine, identity
+  hold, passphrase in memory only), `SetupView` (first-launch wizard, RSA-4096
+  keygen, Keychain save), `UnlockView` (passphrase validation), `HubView` (host
+  or join choice), `HostView` (server management, room list, join requests,
+  multi-room chat), `JoinView` (client connection, room discovery, group approval
+  wait, chat).
+
+### Fixed
+- `macos/Crypto/PGPKeyManager.swift`: simplified keygen and encrypt — `Armor.armored`
+  returns `String` directly (confirmed with ObjectivePGP 0.99.4 autocomplete).
+- `macos/Network/Message.swift`: marked free functions (`wireJSON`, `withDeadline`,
+  `base64urlEncode`, `base64urlDecodeString`, `IncomingFrame.parse`) as
+  `nonisolated` to avoid `@MainActor` inference in SwiftUI module (Swift 5.9).
+- `macos/Network/StealthClient.swift`: added `configure()` for batch callback
+  assignment in a single actor hop.
+- `macos/Network/StealthServer.swift`: replaced `CheckedContinuation` with
+  `AsyncThrowingStream.makeStream()` to avoid stored-continuation `@MainActor`
+  inference issue; added `configure()`; fixed double `wireJSON` call in
+  `sendPeerlist`; fixed `pendingRequests` computation; fixed optional
+  `localizedDescription` forced unwrap.
+- `macos/UI/AppViewModel.swift`: refactored `MessageBubble` rendering into a
+  `@ViewBuilder` computed property, removing `AnyShapeStyle` casting.
 
 ### Fixed
 - `ui/chat.py`: `/switch <room>` in host mode now lists all connected peers one

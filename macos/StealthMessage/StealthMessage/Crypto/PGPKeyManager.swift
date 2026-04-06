@@ -32,15 +32,8 @@ actor PGPKeyManager {
         let pubData  = try key.export(keyType: .public)
         let secData  = try key.export(keyType: .secret)
 
-        let armoredPubData = Armor.armored(pubData,  as: .publicKey)
-        let armoredSecData = Armor.armored(secData, as: .secretKey)
-
-        guard
-            let armoredPublic  = String(data: armoredPubData,  encoding: .utf8),
-            let armoredPrivate = String(data: armoredSecData, encoding: .utf8)
-        else {
-            throw CryptoError.encodingFailed
-        }
+        let armoredPublic  = Armor.armored(pubData, as: .publicKey)
+        let armoredPrivate = Armor.armored(secData, as: .secretKey)
         return (armoredPrivate: armoredPrivate, armoredPublic: armoredPublic)
     }
 
@@ -121,10 +114,7 @@ actor PGPKeyManager {
             passphraseForKey: { _ in passphrase }
         )
 
-        let armoredData = Armor.armored(encryptedData, as: .message)
-        guard let armoredStr = String(data: armoredData, encoding: .utf8) else {
-            throw CryptoError.encodingFailed
-        }
+        let armoredStr = Armor.armored(encryptedData, as: .message)
 
         // base64url(ascii_armor_utf8_bytes) — identical to the Python reference:
         //   base64.urlsafe_b64encode(armored.encode("utf-8")).decode("ascii")

@@ -8,14 +8,26 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State private var app = AppViewModel()
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        NavigationStack {
+            Group {
+                switch app.screen {
+                case .setup:
+                    SetupView(app: app)
+                case .unlock:
+                    UnlockView(app: app)
+                case .hub:
+                    HubView(app: app)
+                case .hosting:
+                    HostView(app: app)
+                case .joining:
+                    JoinView(app: app)
+                }
+            }
         }
-        .padding()
+        .frame(minWidth: 600, minHeight: 500)
     }
 }
 
