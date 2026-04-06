@@ -523,6 +523,7 @@ No router configuration needed.
 | `/allow <alias>` | Approve a pending join request |
 | `/deny <alias>` | Deny a pending join request |
 | `/pending` | List all pending join requests |
+| `/disconnect [alias]` | Force-disconnect a peer (alias optional in 1-on-1 rooms) |
 
 ---
 
@@ -626,6 +627,22 @@ A wrong passphrase exits immediately without loading any data.
 
 ---
 
+## Resetting your identity
+
+To delete your saved keypair and start over with a new alias:
+
+```
+python -m stealth_cli --reset
+```
+
+This wipes the stored keys and config and immediately runs the setup wizard
+so you can choose a new alias and generate a fresh RSA-4096 keypair in one step.
+
+> **Note:** Your previous fingerprint will be invalidated. Any peer who had it
+> saved will need to verify your new fingerprint before trusting the new identity.
+
+---
+
 ## Flags reference
 
 | Flag | Description |
@@ -635,6 +652,7 @@ A wrong passphrase exits immediately without loading any data.
 | `--join URI` | Join a session at host:port (ws:// added automatically) |
 | `--room ROOM` | Room to join (join mode, default: "default") |
 | `--manual` | Show this manual |
+| `--reset` | Delete saved identity and run setup wizard |
 | `--debug` | Enable verbose debug logging |
 | `--help` | Show short usage summary |
 
