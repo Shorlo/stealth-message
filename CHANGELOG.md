@@ -10,6 +10,19 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- `docs/protocol.md` v0.7: new `kick` message (server → client) for
+  host-initiated peer disconnect. Sections renumbered; `kick` added to
+  message type reference table.
+- `cli/network/server.py`: `kick_peer(alias, reason)` — sends `kick` frame
+  and closes the WebSocket connection for the target peer.
+- `cli/network/client.py`: `on_kicked` callback + `kick` frame handler —
+  closes connection and fires callback with the reason string.
+- `cli/ui/chat.py`: `/disconnect [alias]` host command — alias optional in
+  1:1 rooms (auto-resolves the single peer); required in group rooms.
+  Displays confirmation on kick. `on_kicked` wired in `_make_join_client`.
+  Help table updated.
+
+
 - `docs/protocol.md`: documented `peerlist` message type (v0.6). Sent by the
   server to all peers in a group room after each join/leave event; contains the
   alias and fingerprint of every other peer currently in the room.

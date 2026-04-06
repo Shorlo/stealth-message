@@ -230,6 +230,33 @@ class StealthServer:
             for e in self._pending.values()
         ]
 
+    async def kick_peer(self, alias: str, reason: str = "disconnected by host") -> None:
+        """Send a ``kick`` frame to a peer and close their connection.
+
+        The peer's client will display ``reason`` and close its end.
+        The server closes its WebSocket right after sending the frame.
+
+        Raises:
+            ValueError: if no peer with ``alias`` is currently connected.
+        """
+        peer: PeerSession | None = None
+        for peers in self._rooms.values():
+            for p in peers:
+                if p.alias == alias:
+                    peer = p
+                    break
+            if peer is not None:
+                break
+
+        if peer is None:
+            raise ValueError(f"No connected peer with alias {alias!r}")
+
+        try:
+            await peer.ws.send(json.dumps({"type": "kick", "reason": reason}))
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        await peer.ws.close()
+
     async def move_peer(self, alias: str, target_room: str) -> None:
         """Send a ``move`` message to a peer, pre-approving them for ``target_room``.
 

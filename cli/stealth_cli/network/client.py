@@ -104,6 +104,9 @@ class StealthClient:
         # Signature: async def cb(peers: list[dict[str, str]]) -> None
         # Each dict has "alias" and "fingerprint" keys.
         self.on_peerlist: Callable[[list[dict[str, str]]], Awaitable[None]] | None = None
+        # Called when the host force-disconnects this client (protocol.md §5).
+        # Signature: async def cb(reason: str) -> None
+        self.on_kicked: Callable[[str], Awaitable[None]] | None = None
 
     # ------------------------------------------------------------------ #
     # Peer identity (available after connect)                              #
@@ -411,6 +414,13 @@ class StealthClient:
             assert self._ws is not None
             await self._ws.send(json.dumps({"type": "pong"}))
         elif msg_type == "bye":
+            assert self._ws is not None
+            await self._ws.close()
+        elif msg_type == "kick":
+            reason = str(msg.get("reason") or "disconnected by host")
+            logger.info("Kicked by host: %s", reason)
+            if self.on_kicked:
+                await self.on_kicked(reason)
             assert self._ws is not None
             await self._ws.close()
         elif msg_type == "pending":

@@ -1,4 +1,4 @@
-# stealth-message — Wire Protocol v0.6
+# stealth-message — Wire Protocol v0.7
 
 **This document is the cross-platform contract.**
 All clients (CLI, macOS, Windows, Linux) must implement it exactly.
@@ -171,7 +171,24 @@ This is inherent to the model — the host is a trusted relay in group rooms.
 
 ---
 
-## 5. Peer movement
+## 5. Host-initiated disconnect (kick)
+
+The host may forcibly disconnect any connected peer at any time:
+
+**Server → Client:**
+```json
+{ "type": "kick", "reason": "disconnected by host" }
+```
+
+- `reason` is a human-readable string. Clients must display it to the user.
+- The client must close the connection immediately after receiving `kick`.
+- The server closes its end of the connection right after sending `kick`.
+- This is distinct from `bye` (which is a voluntary disconnect initiated by
+  the peer itself) and from `error` (which signals a protocol violation).
+
+---
+
+## 6. Peer movement
 
 Host sends to a connected peer:
 ```json
@@ -183,7 +200,7 @@ pre-approves the move so no `pending` state is triggered.
 
 ---
 
-## 6. Keep-alive
+## 7. Keep-alive
 
 ```json
 { "type": "ping" }
@@ -198,7 +215,7 @@ pre-approves the move so no `pending` state is triggered.
 
 ---
 
-## 7. Clean disconnect
+## 8. Clean disconnect
 
 ```json
 { "type": "bye" }
@@ -208,7 +225,7 @@ Send before closing intentionally. The receiver closes its end after receiving `
 
 ---
 
-## 8. Errors
+## 9. Errors
 
 ```json
 { "type": "error", "code": 4006, "reason": "room is already occupied" }
@@ -227,7 +244,7 @@ Send before closing intentionally. The receiver closes its end after receiving `
 
 ---
 
-## 9. Message type reference
+## 10. Message type reference
 
 | type      | direction          | required fields                              |
 |-----------|--------------------|----------------------------------------------|
@@ -239,6 +256,7 @@ Send before closing intentionally. The receiver closes its end after receiving `
 | pending   | server → client    | —                                            |
 | approved  | server → client    | —                                            |
 | peerlist  | server → client    | peers                                        |
+| kick      | server → client    | reason                                       |
 | move      | server → client    | room                                         |
 | ping      | both               | —                                            |
 | pong      | both               | —                                            |
@@ -247,7 +265,7 @@ Send before closing intentionally. The receiver closes its end after receiving `
 
 ---
 
-## 10. Crypto parameters
+## 11. Crypto parameters
 
 | Parameter        | Value                              |
 |------------------|------------------------------------|
@@ -260,7 +278,7 @@ Send before closing intentionally. The receiver closes its end after receiving `
 
 ---
 
-## 11. Security properties
+## 12. Security properties
 
 | Property              | Guarantee                                                  |
 |-----------------------|------------------------------------------------------------|
@@ -285,3 +303,4 @@ Send before closing intentionally. The receiver closes its end after receiving `
 | 0.4     | 2026-03 | Room list push — `roomlist` message sent after connect and on group conversion |
 | 0.5     | 2026-03 | Pre-join discovery — `listrooms`/`roomsinfo`; `sender` field in group relay; ws:// auto-prefix |
 | 0.6     | 2026-04 | Group room peer awareness — `peerlist` message sent after approval and on every join/leave      |
+| 0.7     | 2026-04 | Host-initiated disconnect — `kick` message (server → client); section numbers updated           |

@@ -719,6 +719,28 @@ class ChatScreen:
                         )
                 return False
 
+            if low.startswith("/disconnect ") or low == "/disconnect":
+                parts = text.split(None, 1)
+                if len(parts) < 2:
+                    # No alias given: disconnect the only peer in the active room
+                    state = self._room_states.get(self._active_room)
+                    if state and state.peer_alias:
+                        target_alias = state.peer_alias
+                    else:
+                        console.print("[red]Usage:[/red] /disconnect <alias>")
+                        return False
+                else:
+                    target_alias = parts[1].strip()
+                try:
+                    await self._server.kick_peer(target_alias)
+                    console.print(
+                        f"[bold red]✗[/bold red] [bold magenta]{target_alias}[/bold magenta]"
+                        " has been disconnected."
+                    )
+                except ValueError as exc:
+                    console.print(f"[red]{exc}[/red]")
+                return False
+
         return None  # not a recognized command — fall through to send
 
     def _make_join_client(self, room_id: str) -> StealthClient:
@@ -784,6 +806,16 @@ class ChatScreen:
             state.peer_fingerprints = fps
             state.peer_aliases = list(fps.keys())
 
+        async def on_kicked(reason: str) -> None:
+            await self._print_queue.put(
+                Text.assemble(
+                    ("  ✗ ", "bold red"),
+                    ("Disconnected by host", "bold"),
+                    (f": {reason}", "dim"),
+                )
+            )
+            self._stop_event.set()
+
         client.on_message = on_message
         client.on_disconnected = on_disconnected
         client.on_pending = on_pending
@@ -791,6 +823,7 @@ class ChatScreen:
         client.on_move = on_move
         client.on_roomlist = on_roomlist
         client.on_peerlist = on_peerlist
+        client.on_kicked = on_kicked
         return client
 
     def _make_send_fn(self, room_id: str) -> Callable[[str], object]:
@@ -1002,6 +1035,7 @@ def _build_help_table(
         t.add_row("/allow <alias>", "Approve a join request")
         t.add_row("/deny <alias>", "Deny a join request")
         t.add_row("/pending", "List pending join requests")
+        t.add_row("/disconnect [alias]", "Force-disconnect a peer")
 
     return t
 
