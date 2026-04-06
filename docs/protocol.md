@@ -1,4 +1,4 @@
-# stealth-message — Wire Protocol v0.7
+# stealth-message — Wire Protocol v0.8
 
 **This document is the cross-platform contract.**
 All clients (CLI, macOS, Windows, Linux) must implement it exactly.
@@ -278,7 +278,32 @@ Send before closing intentionally. The receiver closes its end after receiving `
 
 ---
 
-## 12. Security properties
+## 12. Identity model
+
+A user's identity **is** their RSA-4096 keypair. There are no accounts,
+usernames, emails, or phone numbers.
+
+- The **alias** (display name) is embedded as a UID in the PGP key at
+  generation time. It cannot be changed without generating a new keypair.
+- The **fingerprint** (40 hex chars, groups of 4) uniquely identifies a key.
+  Peers must verify fingerprints out-of-band (in person, by phone) before
+  trusting a conversation.
+- The **private key** is stored encrypted on disk (passphrase-protected,
+  AES-256). The passphrase is never written to disk; it is only held in
+  memory for the duration of the session.
+- Generating a new identity invalidates the previous fingerprint. Any peer
+  who had the old fingerprint saved must re-verify the new one.
+
+**Implementation requirement:** each client must provide a way for the user
+to reset their identity (delete the stored keypair and generate a new one).
+The reset operation must:
+1. Securely delete the stored private key from disk / Keychain.
+2. Delete any stored alias and config.
+3. Run the setup wizard to collect a new alias, passphrase, and keypair.
+
+---
+
+## 13. Security properties
 
 | Property              | Guarantee                                                  |
 |-----------------------|------------------------------------------------------------|
@@ -304,3 +329,4 @@ Send before closing intentionally. The receiver closes its end after receiving `
 | 0.5     | 2026-03 | Pre-join discovery — `listrooms`/`roomsinfo`; `sender` field in group relay; ws:// auto-prefix |
 | 0.6     | 2026-04 | Group room peer awareness — `peerlist` message sent after approval and on every join/leave      |
 | 0.7     | 2026-04 | Host-initiated disconnect — `kick` message (server → client); section numbers updated           |
+| 0.8     | 2026-04 | Identity model — §12 documents alias-in-key, fingerprint verification, and reset requirements   |

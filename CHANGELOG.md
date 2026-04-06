@@ -14,6 +14,9 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
   config, reverting to first-use state.
 - `cli/stealth_cli/__main__.py`: `--reset` flag — deletes the saved identity
   and runs the setup wizard to create a new alias and keypair.
+- `docs/protocol.md` v0.8: new §12 — identity model. Documents alias-in-key
+  binding, fingerprint verification requirement, private key storage rules,
+  and the reset implementation requirement for all clients.
 - `docs/protocol.md` v0.7: new `kick` message (server → client) for
   host-initiated peer disconnect. Sections renumbered; `kick` added to
   message type reference table.
