@@ -13,6 +13,9 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 - `docs/protocol.md`: documented `peerlist` message type (v0.6). Sent by the
   server to all peers in a group room after each join/leave event; contains the
   alias and fingerprint of every other peer currently in the room.
+- `macos/`: initial Xcode project scaffold for the native macOS client
+  (SwiftUI, Swift 5.9+, macOS 13.0+). Includes ObjectivePGP 0.99.4 via SPM
+  and Keychain Sharing entitlement configured.
 
 ### Fixed
 - `ui/chat.py`: `/switch <room>` in host mode now lists all connected peers one
