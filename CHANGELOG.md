@@ -16,6 +16,11 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 - `macos/`: initial Xcode project scaffold for the native macOS client
   (SwiftUI, Swift 5.9+, macOS 13.0+). Includes ObjectivePGP 0.99.4 via SPM
   and Keychain Sharing entitlement configured.
+- `macos/Crypto/`: crypto layer scaffold — `CryptoError`, `KeychainStore`,
+  `PGPKeyManager` actor (RSA-4096 keygen, sign-then-encrypt, decrypt-then-verify,
+  fingerprint formatting, Keychain storage).
+- `macos/CLAUDE.md`: updated with full implementation state, ObjectivePGP 0.99.4
+  API reference, and pending tasks for continuation from Xcode.
 
 ### Fixed
 - `ui/chat.py`: `/switch <room>` in host mode now lists all connected peers one
