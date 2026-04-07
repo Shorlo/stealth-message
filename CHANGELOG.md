@@ -10,6 +10,31 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- `macos/StealthMessageApp.swift`: `AppDelegate` with `applicationShouldTerminate`
+  — sends `bye` to all connected peers before the app quits (graceful shutdown).
+- `macos/UI/AppViewModel.swift`: `gracefulShutdown()` — stops the running
+  server or client and waits for cleanup before app termination.
+- `macos/Network/StealthServer.swift`: `stop()` now sends a `bye` frame to
+  every connected peer before cancelling connections.
+- `macos/UI/SetupView.swift`: form redesigned with `Form.grouped` style;
+  alias length validation (≤64 chars); copy-fingerprint button on the
+  confirmation screen.
+- `macos/UI/HubView.swift`: copy-fingerprint button on the identity card.
+- `macos/UI/JoinView.swift`: copy-fingerprint button for the host's
+  fingerprint; group peers shown in a popover instead of inline list;
+  `/move` now correctly disconnects and reconnects to the new room
+  (protocol §6) instead of only updating the label.
+- `macos/UI/HostView.swift`: left panel rebuilt with native `List` — pending
+  approvals surfaced at the top, rooms and peers in labelled sections.
+- `macos/ContentView.swift`: `app: AppViewModel` promoted to a constructor
+  parameter so `StealthMessageApp` owns the single instance.
+
+### Changed
+- `macos/UI/HostView.swift`: sidebar minimum width reduced (240 → 220 px).
+
+---
+
+### Added (previous)
 - `macos/Network/Message.swift`: `kick` case added to `IncomingFrame` enum
   and parser (protocol.md §5 / v0.7).
 - `macos/Network/StealthClient.swift`: `onKicked` callback + `kick` frame

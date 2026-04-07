@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // MARK: - ViewModel
 
@@ -17,10 +18,16 @@ final class SetupViewModel {
 
     private let crypto = PGPKeyManager()
 
+    var aliasExceedsLimit: Bool {
+        alias.trimmingCharacters(in: .whitespaces).count > 64
+    }
+
     var canGenerate: Bool {
-        !alias.trimmingCharacters(in: .whitespaces).isEmpty &&
-        passphrase.count >= 8 &&
-        passphrase == confirmPassphrase
+        let trimmed = alias.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty &&
+               trimmed.count <= 64 &&
+               passphrase.count >= 8 &&
+               passphrase == confirmPassphrase
     }
 
     /// Generates an RSA-4096 keypair and saves it to Keychain.
@@ -95,17 +102,46 @@ struct SetupView: View {
 
     private var formSection: some View {
         VStack(spacing: 20) {
-            VStack(alignment: .leading, spacing: 12) {
-                labeledField("Display name", hint: "Visible to peers") {
-                    TextField("e.g. Alice", text: $vm.alias)
+            Form {
+                Section {
+                    LabeledContent("Display name") {
+                        TextField("e.g. Alice", text: $vm.alias)
+                            .textFieldStyle(.plain)
+                    }
+                    if vm.aliasExceedsLimit {
+                        Label("Alias must be 64 characters or fewer", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                } footer: {
+                    Text("Visible to peers you chat with.")
+                        .font(.caption)
                 }
-                labeledField("Passphrase", hint: "Min. 8 characters") {
-                    SecureField("Choose a strong passphrase", text: $vm.passphrase)
-                }
-                labeledField("Confirm passphrase", hint: passphraseMismatchHint) {
-                    SecureField("Repeat passphrase", text: $vm.confirmPassphrase)
+
+                Section {
+                    LabeledContent("Passphrase") {
+                        SecureField("Min. 8 characters", text: $vm.passphrase)
+                            .textFieldStyle(.plain)
+                    }
+                    LabeledContent("Confirm") {
+                        SecureField("Repeat passphrase", text: $vm.confirmPassphrase)
+                            .textFieldStyle(.plain)
+                    }
+                } footer: {
+                    Group {
+                        if !vm.confirmPassphrase.isEmpty {
+                            Text(vm.passphrase == vm.confirmPassphrase
+                                 ? "✓ Passphrases match"
+                                 : "✗ Passphrases don't match")
+                                .foregroundStyle(vm.passphrase == vm.confirmPassphrase
+                                                 ? Color.green : Color.red)
+                        }
+                    }
+                    .font(.caption)
                 }
             }
+            .formStyle(.grouped)
+            .fixedSize(horizontal: false, vertical: true)
 
             if let err = vm.errorMessage {
                 Text(err)
@@ -152,12 +188,22 @@ struct SetupView: View {
                 Text("Your PGP fingerprint")
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
-                Text(vm.generatedFingerprint)
-                    .font(.system(.body, design: .monospaced))
-                    .multilineTextAlignment(.center)
-                    .padding(12)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                    .textSelection(.enabled)
+                HStack(spacing: 8) {
+                    Text(vm.generatedFingerprint)
+                        .font(.system(.body, design: .monospaced))
+                        .multilineTextAlignment(.center)
+                        .padding(12)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                        .textSelection(.enabled)
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(vm.generatedFingerprint, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Copy fingerprint")
+                }
             }
 
             Text("Share this fingerprint with your peers so they can verify your identity out-of-band (voice call, in person, etc.).")
@@ -174,29 +220,4 @@ struct SetupView: View {
         }
     }
 
-    // MARK: - Helpers
-
-    private var passphraseMismatchHint: String {
-        guard !vm.confirmPassphrase.isEmpty else { return "" }
-        return vm.passphrase == vm.confirmPassphrase ? "✓ Match" : "✗ Mismatch"
-    }
-
-    @ViewBuilder
-    private func labeledField<F: View>(
-        _ label: String, hint: String, @ViewBuilder field: () -> F
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(label).font(.caption.bold())
-                if !hint.isEmpty {
-                    Text(hint)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            field()
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 360)
-        }
-    }
 }

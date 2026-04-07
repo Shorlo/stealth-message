@@ -155,9 +155,13 @@ actor StealthServer {
     }
 
     /// Stops the server and closes all active connections.
+    /// Sends a `bye` frame to every connected peer before cancelling so clients
+    /// know the server shut down intentionally (not a network drop).
     func stop() {
+        let byeFrame = wireJSON(["type": "bye"]) ?? "{}"
         for peers in rooms.values {
             for peer in peers {
+                sendTextSync(byeFrame, to: peer.connection)
                 peer.connection.cancel()
             }
         }

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct HubView: View {
     var app: AppViewModel
@@ -19,13 +20,23 @@ struct HubView: View {
                     Text("Your fingerprint — verify with peers out-of-band")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(app.fingerprint)
-                        .font(.system(.caption, design: .monospaced))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                        .textSelection(.enabled)
+                    HStack(spacing: 6) {
+                        Text(app.fingerprint)
+                            .font(.system(.caption, design: .monospaced))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                            .textSelection(.enabled)
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(app.fingerprint, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Copy fingerprint")
+                    }
                 }
             }
 

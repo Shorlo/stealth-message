@@ -120,6 +120,20 @@ final class AppViewModel {
         screen = .hub
     }
 
+    // MARK: - Graceful shutdown
+
+    /// Sends `bye` frames to all connected peers and stops any running server/client.
+    /// Called just before the app terminates so peers are notified rather than
+    /// experiencing a silent connection drop.
+    func gracefulShutdown() async {
+        if let hvm = hostViewModel, hvm.isRunning {
+            await hvm.stopServer()
+        }
+        if let cvm = clientViewModel, cvm.isConnected {
+            await cvm.disconnect()
+        }
+    }
+
     // MARK: - Identity reset (protocol §12)
 
     /// Securely deletes the stored keypair from the Keychain and restarts the

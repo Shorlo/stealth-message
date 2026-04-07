@@ -130,8 +130,9 @@ final class ClientViewModel: @unchecked Sendable {
             onMove: { [weak self] newRoom in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    self.selectedRoom = newRoom
-                    self.systemMessage("Moved to room: \(newRoom)")
+                    // Protocol §6: host-initiated move — disconnect and reconnect to new room.
+                    self.systemMessage("Host is moving you to room: \(newRoom)…")
+                    await self.switchRoom(to: newRoom)
                 }
             },
             onRoomList: { [weak self] groups in
@@ -224,6 +225,7 @@ final class ClientViewModel: @unchecked Sendable {
 struct JoinView: View {
     @Bindable var vm: ClientViewModel
     var app: AppViewModel
+    @State private var showPeersPopover = false
 
     var body: some View {
         Group {
@@ -365,24 +367,49 @@ struct JoinView: View {
                     Text("Host: \(alias)")
                         .font(.caption.bold())
                     if let fp = vm.peerFingerprint {
-                        Text(fp)
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                        HStack(spacing: 4) {
+                            Text(fp)
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(fp, forType: .string)
+                            } label: {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.caption2)
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Copy host fingerprint")
+                        }
                     }
                 }
             }
 
             if !vm.groupPeers.isEmpty {
                 Divider().frame(height: 32)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Peers in room:")
+                Button { showPeersPopover.toggle() } label: {
+                    Label("\(vm.groupPeers.count) peer(s) in room", systemImage: "person.2")
                         .font(.caption.bold())
-                    ForEach(vm.groupPeers, id: \.alias) { peer in
-                        Text("\(peer.alias)  \(peer.fingerprint)")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .popover(isPresented: $showPeersPopover, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Peers in \(vm.selectedRoom)")
+                            .font(.headline)
+                        Divider()
+                        ForEach(vm.groupPeers, id: \.alias) { peer in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(peer.alias).font(.callout.bold())
+                                Text(peer.fingerprint)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
                     }
+                    .padding()
+                    .frame(minWidth: 320)
                 }
             }
 
