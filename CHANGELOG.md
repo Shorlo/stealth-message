@@ -10,6 +10,11 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- `README.md`: updated features list (kick, reset, graceful shutdown, Tailscale);
+  added "Connecting over the internet" section; license section (GPL-3.0).
+- `ARCHITECTURE.md`: full implementation status tables for CLI and macOS;
+  updated protocol version to v0.8; added kick flow diagram; reset identity
+  section; graceful shutdown design decision; `peerlist` in group room flow.
 - `macos/StealthMessageApp.swift`: `AppDelegate` with `applicationShouldTerminate`
   — sends `bye` to all connected peers before the app quits (graceful shutdown).
 - `macos/UI/AppViewModel.swift`: `gracefulShutdown()` — stops the running

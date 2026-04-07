@@ -21,12 +21,15 @@ directamente a él.
 - Firma digital en cada mensaje: identidad del emisor verificable criptográficamente.
 - Sin servidor central: modelo peer-to-peer directo (host + peers).
 - Sin cuentas ni registro: la identidad es la clave PGP.
-- Claves privadas almacenadas con permisos `0600`; passphrase solo en memoria.
+- Claves privadas almacenadas con permisos `0600` o en Keychain; passphrase solo en memoria.
 - **Salas 1:1** — exactamente un peer por sala; acceso denegado si está ocupada.
 - **Salas de grupo** — múltiples peers con aprobación explícita del host.
-- Descubrimiento de salas: los peers ven la lista de salas disponibles antes de unirse.
-- Movimiento de peers entre salas en caliente con `/move`.
-- Cuatro clientes nativos que interoperan mediante un protocolo común.
+- Descubrimiento de salas antes de conectarse (`listrooms` / `roomsinfo`).
+- Movimiento de peers entre salas en caliente (`/move`).
+- Desconexión forzada de peers por el host (`kick` / `/disconnect`).
+- Reset de identidad: borra el keypair y genera uno nuevo (`--reset` / botón en UI).
+- Shutdown graceful: se envía `bye` a todos los peers al cerrar la app.
+- Cuatro clientes nativos que interoperan mediante un protocolo común (v0.8).
 
 ---
 
@@ -36,8 +39,8 @@ directamente a él.
 |------------|----------------------|--------------|---------------|
 | Terminal   | Python 3.10+         | `cli/`       | Funcional     |
 | macOS      | Swift 5.9+ / SwiftUI | `macos/`     | En desarrollo |
-| Windows 11 | C# 12 / WinUI 3      | `windows/`   | En desarrollo |
-| Linux      | Python 3.10+ / GTK4  | `linux/`     | En desarrollo |
+| Windows 11 | C# 12 / WinUI 3      | `windows/`   | Pendiente     |
+| Linux      | Python 3.10+ / GTK4  | `linux/`     | Pendiente     |
 
 Todos los clientes implementan el mismo protocolo (`docs/protocol.md`) y pueden
 comunicarse entre sí independientemente de la plataforma.
@@ -68,6 +71,28 @@ python -m stealth_cli --host --rooms a,b   # múltiples salas
 python -m stealth_cli --join ALICE_IP:8765 --room a
 # El prefijo ws:// se añade automáticamente si se omite
 ```
+
+**Manual completo:**
+```bash
+python -m stealth_cli --manual
+```
+
+---
+
+## Conectarse por internet
+
+Para conectarse fuera de la red local hay dos opciones:
+
+**Port forwarding** — abre el puerto 8765 en tu router y dale a los peers tu IP pública.
+Si tu ISP usa CG-NAT (la IP WAN del router no coincide con `curl ifconfig.me`), esta
+opción no funcionará.
+
+**Tailscale (recomendado)** — crea un túnel WireGuard entre dispositivos sin configurar
+el router. Instala Tailscale en todas las máquinas, usa `tailscale status` para ver las
+IPs `100.x.x.x` y conéctate con esas direcciones.
+
+Ver el apartado "Connecting over the internet" del manual (`--manual`) para los pasos
+detallados.
 
 ---
 
@@ -106,4 +131,21 @@ Ver [CHANGELOG.md](CHANGELOG.md) para el historial de cambios del proyecto.
 
 ## Licencia
 
-*(Por definir)*
+Copyright © 2026 Javier Sainz de Baranda y Goñi.
+
+Este programa es [software libre](https://www.gnu.org/philosophy/free-sw.html): puedes
+redistribuirlo y/o modificarlo bajo los términos de la
+[GNU General Public License](https://www.gnu.org/licenses/gpl-3.0.html) tal como la
+publica la [Free Software Foundation](https://www.fsf.org), ya sea la versión 3 de la
+Licencia, o (a tu elección) cualquier versión posterior.
+
+**Este programa se distribuye con la esperanza de que sea útil, pero SIN NINGUNA
+GARANTÍA; sin siquiera la garantía implícita de COMERCIABILIDAD o IDONEIDAD PARA UN
+FIN DETERMINADO.** Consulta la GNU General Public License para más detalles.
+
+Deberías haber recibido una [copia](LICENSE) de la GNU General Public License junto con
+este programa. Si no es así, visita <https://www.gnu.org/licenses/>.
+
+Para proyectos donde los términos de la GNU General Public License impidan el uso de
+este software o requieran la publicación no deseada del código fuente de productos
+comerciales, puedes [solicitar una licencia especial](mailto:info@syberiancode.com?subject=stealth-message).
