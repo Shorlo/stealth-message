@@ -602,7 +602,14 @@ async def test_group_room_allows_second_peer_after_approval(
     cli2 = StealthClient("Test Client 2", client2_keys[0], PASSPHRASE)
 
     try:
-        await cli1.connect(f"ws://localhost:{srv.port}", room_id="group")
+        # Every peer in a group room requires approval — connect cli1 as a task.
+        cli1_task = asyncio.create_task(
+            cli1.connect(f"ws://localhost:{srv.port}", room_id="group")
+        )
+        req = await asyncio.wait_for(join_requests.get(), timeout=WAIT_TIMEOUT)
+        assert req[0] == CLIENT_ALIAS
+        srv.approve_join(CLIENT_ALIAS)
+        await asyncio.wait_for(cli1_task, timeout=WAIT_TIMEOUT)
         await asyncio.sleep(0.1)
         assert len(srv.connected_peers) == 1
 
@@ -648,7 +655,14 @@ async def test_group_room_denied_raises_protocol_error(
     cli2 = StealthClient("Test Client 2", client2_keys[0], PASSPHRASE)
 
     try:
-        await cli1.connect(f"ws://localhost:{srv.port}", room_id="group")
+        # Every peer in a group room requires approval — connect cli1 as a task
+        # so we can approve it while it's waiting in pending state.
+        cli1_task = asyncio.create_task(
+            cli1.connect(f"ws://localhost:{srv.port}", room_id="group")
+        )
+        await asyncio.wait_for(join_requests.get(), timeout=WAIT_TIMEOUT)
+        srv.approve_join(CLIENT_ALIAS)
+        await asyncio.wait_for(cli1_task, timeout=WAIT_TIMEOUT)
         await asyncio.sleep(0.1)
 
         connect_task = asyncio.create_task(
@@ -704,7 +718,14 @@ async def test_group_room_messages_forwarded_to_all_peers(
     cli2.on_message = on_msg2
 
     try:
-        await cli1.connect(f"ws://localhost:{srv.port}", room_id="group")
+        # Every peer in a group room requires approval — connect cli1 as a task
+        # so we can approve it while it's waiting in pending state.
+        cli1_task = asyncio.create_task(
+            cli1.connect(f"ws://localhost:{srv.port}", room_id="group")
+        )
+        await asyncio.wait_for(join_requests.get(), timeout=WAIT_TIMEOUT)
+        srv.approve_join(CLIENT_ALIAS)
+        await asyncio.wait_for(cli1_task, timeout=WAIT_TIMEOUT)
         await asyncio.sleep(0.1)
 
         connect_task = asyncio.create_task(

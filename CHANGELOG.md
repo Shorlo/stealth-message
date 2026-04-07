@@ -9,6 +9,13 @@ y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Fixed
+- `cli/tests/test_network.py`: three group-room tests were deadlocking because
+  the first peer (`cli1`) was awaited directly while the server held it in
+  `pending` state — all group room peers require host approval, including the
+  first one. Tests now connect `cli1` as an async task and approve it before
+  proceeding with `cli2`.
+
 ### Added
 - `README.md`: updated features list (kick, reset, graceful shutdown, Tailscale);
   added "Connecting over the internet" section; license section (GPL-3.0).
