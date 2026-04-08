@@ -1,94 +1,94 @@
-# Política de seguridad
+# Security policy
 
-## Alcance
+## Scope
 
-Este documento cubre la política de seguridad de `stealth-message` en todos sus
-subproyectos: CLI (Python), macOS (Swift), Windows (C#) y Linux (Python/GTK4).
-
----
-
-## Versiones soportadas
-
-| Versión    | Soporte de seguridad |
-|------------|----------------------|
-| `main`     | Activo               |
-| < 1.0.0    | Sin soporte (pre-release) |
+This document covers the security policy of `stealth-message` across all
+sub-projects: CLI (Python), macOS (Swift), Windows (C#), and Linux (Python/GTK4).
 
 ---
 
-## Reporte de vulnerabilidades
+## Supported versions
 
-**No abrir issues públicos para reportar vulnerabilidades de seguridad.**
-
-Para reportar una vulnerabilidad, contactar de forma privada:
-
-- **Email:** *(añadir dirección de contacto del mantenedor)*
-- **Asunto:** `[SECURITY] stealth-message — descripción breve`
-
-Se responderá en un plazo máximo de **72 horas** con la confirmación de recepción.
-
-### Qué incluir en el reporte
-
-1. Descripción del problema y su impacto potencial.
-2. Pasos para reproducirlo (PoC si es posible).
-3. Versión o commit afectado.
-4. Posible mitigación o solución propuesta (opcional).
-
-### Proceso de divulgación responsable
-
-1. Se recibe el reporte de forma privada.
-2. Se confirma la vulnerabilidad y se evalúa el impacto.
-3. Se desarrolla y prueba la corrección.
-4. Se publica la corrección junto con un advisory.
-5. Se acredita al investigador (salvo solicitud de anonimato).
+| Version    | Security support |
+|------------|------------------|
+| `main`     | Active           |
+| < 1.0.0    | No support (pre-release) |
 
 ---
 
-## Principios de seguridad del proyecto
+## Reporting vulnerabilities
 
-### Claves privadas
-- Las claves privadas PGP **nunca abandonan el dispositivo del usuario**.
-- Se almacenan en el almacén seguro del sistema operativo:
+**Do not open public issues to report security vulnerabilities.**
+
+To report a vulnerability, contact privately:
+
+- **Email:** [info@syberiancode.com](mailto:info@syberiancode.com)
+- **Subject:** `[SECURITY] stealth-message — brief description`
+
+A confirmation of receipt will be sent within **72 hours**.
+
+### What to include in the report
+
+1. Description of the problem and its potential impact.
+2. Steps to reproduce it (PoC if possible).
+3. Affected version or commit.
+4. Possible mitigation or proposed fix (optional).
+
+### Responsible disclosure process
+
+1. Report is received privately.
+2. Vulnerability is confirmed and impact assessed.
+3. Fix is developed and tested.
+4. Fix is published together with an advisory.
+5. Researcher is credited (unless anonymity is requested).
+
+---
+
+## Project security principles
+
+### Private keys
+- PGP private keys **never leave the user's device**.
+- They are stored in the OS secure store:
   - macOS: Keychain Services (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`)
   - Windows: DPAPI (`ProtectedData.Protect`, scope `CurrentUser`)
   - Linux: libsecret (SecretService DBus)
-  - CLI: archivo con permisos `0600` en el directorio de configuración
-- Las passphrases existen solo en memoria durante la sesión activa. **Nunca en disco.**
+  - CLI: `0600` file in the configuration directory
+- Passphrases exist only in memory during the active session. **Never on disk.**
 
-### Cifrado de mensajes
-- Todos los mensajes se cifran con la clave pública del destinatario antes de enviarse.
-- Todos los mensajes se firman con la clave privada del emisor.
-- Los mensajes con firma inválida se descartan y se notifica al usuario.
-- El transporte es WebSocket; se recomienda usar WSS (TLS) en redes no confiables.
+### Message encryption
+- All messages are encrypted with the recipient's public key before sending.
+- All messages are signed with the sender's private key.
+- Messages with an invalid signature are discarded and the user is notified.
+- Transport is WebSocket; WSS (TLS) is recommended on untrusted networks.
 
-### Verificación de identidad
-- No hay PKI centralizada ni directorio de claves.
-- Los usuarios **deben verificar los fingerprints de las claves por un canal independiente**
-  (en persona, por teléfono) antes de confiar en una conversación.
-- La UI debe mostrar siempre el fingerprint completo (40 caracteres en grupos de 4).
+### Identity verification
+- There is no centralised PKI or key directory.
+- Users **must verify key fingerprints over an independent channel**
+  (in person, by phone) before trusting a conversation.
+- The UI must always display the full fingerprint (40 hex chars in groups of 4).
 
-### Información sensible en el código
-- Ningún campo sensible (passphrase, clave privada, fingerprint de tests) debe aparecer
-  en logs, consola, clipboard o archivos de configuración de tests.
-- Las passphrases en UI usan siempre campos de contraseña (`SecureField`, `PasswordBox`,
-  `Gtk.Entry.set_visibility(False)`, `prompt_toolkit` con `is_password=True`).
+### Sensitive information in code
+- No sensitive field (passphrase, private key, test fingerprint) may appear in
+  logs, console output, clipboard, or test configuration files.
+- Passphrases in the UI always use password fields (`SecureField`, `PasswordBox`,
+  `Gtk.Entry.set_visibility(False)`, `prompt_toolkit` with `is_password=True`).
 
-### Dependencias
-- Minimizar dependencias de terceros, especialmente en módulos crypto.
-- Las dependencias de criptografía deben ser librerías establecidas y auditadas.
-- Revisar las dependencias ante nuevas vulnerabilidades (CVEs) antes de cada release.
+### Dependencies
+- Minimise third-party dependencies, especially in crypto modules.
+- Cryptography dependencies must be established and audited libraries.
+- Review dependencies for new vulnerabilities (CVEs) before each release.
 
 ---
 
-## Amenazas fuera del alcance actual
+## Threats outside current scope
 
-Las siguientes amenazas están fuera del alcance de la versión actual (v0.x):
+The following threats are outside the scope of the current version (v0.x):
 
-- **Forward secrecy:** los mensajes cifrados con una clave comprometida son descifrable
-  retroactivamente. Una futura versión (v2) introducirá claves de sesión efímeras.
-- **NAT traversal / relay:** la conexión directa requiere que el host sea accesible.
-  No hay soporte para TURN ni relay en esta versión.
-- **Anonimato de red:** las IPs de los participantes son visibles entre ellos.
-  No hay integración con Tor ni redes de anonimato.
-- **Protección contra análisis de tráfico:** los metadatos de red (tamaño, timing)
-  no se ofuscan en esta versión.
+- **Forward secrecy:** messages encrypted with a compromised key can be decrypted
+  retroactively. A future version (v2) will introduce ephemeral session keys.
+- **NAT traversal / relay:** the direct connection requires the host to be reachable.
+  There is no TURN or relay support in this version.
+- **Network anonymity:** the IP addresses of participants are visible to each other.
+  There is no Tor or anonymity network integration.
+- **Traffic analysis protection:** network metadata (size, timing) is not obfuscated
+  in this version.

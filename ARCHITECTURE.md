@@ -1,339 +1,338 @@
-# Arquitectura de stealth-message
+# stealth-message Architecture
 
-## Visión general
+## Overview
 
-`stealth-message` es una aplicación de chat cifrado end-to-end con claves PGP.
-No existe servidor central: uno de los participantes actúa como **host** (levanta
-el servidor WebSocket) y el resto se conectan directamente a él.
+`stealth-message` is an end-to-end encrypted PGP chat application.
+There is no central server: one participant acts as **host** (starts the WebSocket
+server) and the others connect directly to it.
 
 ```
 ┌─────────────┐        WebSocket + PGP        ┌─────────────┐
-│  Cliente A  │◄─────────────────────────────►│  Cliente B  │
+│  Client A   │◄─────────────────────────────►│  Client B   │
 │  (host)     │                               │  (join)     │
 └─────────────┘                               └─────────────┘
 ```
 
-En salas de grupo, el host actúa como relay entre peers:
+In group rooms, the host acts as a relay between peers:
 
 ```
-┌──────────┐   cifrado(B)   ┌──────────┐   cifrado(C)   ┌──────────┐
-│ Cliente B │──────────────►│  Host A  │──────────────►│ Cliente C │
-└──────────┘                └──────────┘                └──────────┘
-                                 │
-                         re-cifra para cada
-                         destinatario — ve el
-                         plaintext durante el relay
+┌──────────┐   encrypted(B)  ┌──────────┐  encrypted(C)  ┌──────────┐
+│ Client B  │────────────────►│  Host A  │───────────────►│ Client C │
+└──────────┘                 └──────────┘                 └──────────┘
+                                   │
+                           re-encrypts individually
+                           for each recipient —
+                           sees plaintext during relay
 ```
 
-No hay relay de terceros. Los mensajes cifrados solo pasan por las máquinas
-de los participantes.
+No third-party relay. Encrypted messages only pass through the participants' own machines.
 
 ---
 
-## Estructura del monorepo
+## Monorepo structure
 
 ```
 stealth-message/
 ├── docs/
-│   └── protocol.md       ← FUENTE DE VERDAD del protocolo (v0.8)
-├── cli/                  ← Terminal (Python 3.10+)  ← IMPLEMENTACIÓN REFERENCIA
-├── macos/                ← App nativa macOS (Swift 5.9+ / SwiftUI)  ← en desarrollo
-├── windows/              ← App nativa Windows 11 (C# 12 / WinUI 3)  ← pendiente
-└── linux/                ← App nativa Linux GTK4 (Python 3.10+)     ← pendiente
+│   └── protocol.md       ← SOURCE OF TRUTH for the protocol (v0.8)
+├── cli/                  ← Terminal client (Python 3.10+)  ← REFERENCE IMPLEMENTATION
+├── macos/                ← Native macOS app (Swift 5.9+ / SwiftUI)  ← in development
+├── windows/              ← Native Windows 11 app (C# 12 / WinUI 3)  ← pending
+└── linux/                ← Native Linux app, GTK4 (Python 3.10+)    ← pending
 ```
 
-**Principio clave:** no hay código compartido entre plataformas. El contrato es
-`docs/protocol.md`. Si dos clientes distintos pueden chatear entre sí, el
-protocolo está bien implementado en ambos.
+**Key principle:** no shared code between platforms. The contract is `docs/protocol.md`.
+If two different clients can chat with each other, the protocol is correctly implemented
+in both.
 
 ---
 
-## Estado actual de implementación
+## Implementation status
 
-### CLI (`cli/`) — Implementación referencia — Funcional
+### CLI (`cli/`) — Reference implementation — Functional
 
-| Módulo | Archivo | Estado |
-|--------|---------|--------|
-| Entrada / flags | `__main__.py` | Completo |
-| Configuración y persistencia | `config.py` | Completo |
-| Generación de claves | `crypto/keys.py` | Completo |
-| Cifrado / descifrado | `crypto/messages.py` | Completo |
-| Servidor WebSocket | `network/server.py` | Completo |
-| Cliente WebSocket | `network/client.py` | Completo |
-| Interfaz de chat | `ui/chat.py` | Completo |
-| Asistente de configuración | `ui/setup.py` | Completo |
-| Suite de tests | `tests/` | 64 tests, todos pasan |
+| Module | File | Status |
+|--------|------|--------|
+| Entry point / flags | `__main__.py` | Complete |
+| Configuration and persistence | `config.py` | Complete |
+| Key generation | `crypto/keys.py` | Complete |
+| Encrypt / decrypt | `crypto/messages.py` | Complete |
+| WebSocket server | `network/server.py` | Complete |
+| WebSocket client | `network/client.py` | Complete |
+| Chat interface | `ui/chat.py` | Complete |
+| Setup wizard | `ui/setup.py` | Complete |
+| Test suite | `tests/` | 64 tests, all passing |
 
-Comandos disponibles en el CLI:
+Chat commands:
 
-| Comando | Quién | Descripción |
-|---------|-------|-------------|
-| `/fp` | todos | Fingerprint del peer actual |
-| `/rooms` | todos | Lista de salas y estado |
-| `/switch <sala>` | todos | Cambiar de sala activa |
-| `/help` | todos | Mostrar ayuda |
-| `/quit` / `/exit` / `/q` | todos | Cerrar sesión |
-| `/new <sala>` | host | Crear sala 1:1 en caliente |
-| `/group <sala>` | host | Convertir sala a modo grupo |
-| `/move <alias> <sala>` | host | Mover peer a otra sala |
-| `/allow <alias>` | host | Aprobar solicitud de unión |
-| `/deny <alias>` | host | Denegar solicitud de unión |
-| `/pending` | host | Ver solicitudes pendientes |
-| `/disconnect [alias]` | host | Forzar desconexión de un peer |
+| Command | Who | Description |
+|---------|-----|-------------|
+| `/fp` | all | Show current peer's PGP fingerprint |
+| `/rooms` | all | List all known rooms and their status |
+| `/switch <room>` | all | Change active room |
+| `/help` | all | Show available commands |
+| `/quit` / `/exit` / `/q` | all | Close session cleanly |
+| `/new <room>` | host | Create a new 1-on-1 room at runtime |
+| `/group <room>` | host | Convert a room to group mode |
+| `/move <alias> <room>` | host | Move a peer to another room (pre-approved) |
+| `/allow <alias>` | host | Approve a pending join request |
+| `/deny <alias>` | host | Deny a pending join request |
+| `/pending` | host | List pending join requests |
+| `/disconnect [alias]` | host | Force-disconnect a peer |
 
-Flags del ejecutable:
+Executable flags:
 
-| Flag | Descripción |
+| Flag | Description |
 |------|-------------|
-| `--host [PORT]` | Modo host, puerto por defecto 8765 |
-| `--rooms ROOMS` | Salas separadas por comas (modo host) |
-| `--join URI` | Modo join, `ws://` añadido automáticamente |
-| `--room ROOM` | Sala a unirse (modo join, por defecto "default") |
-| `--reset` | Borra la identidad guardada y lanza el asistente |
-| `--manual` | Manual de usuario completo |
-| `--debug` | Logging detallado |
+| `--host [PORT]` | Host mode, default port 8765 |
+| `--rooms ROOMS` | Comma-separated room names (host mode) |
+| `--join URI` | Join mode, `ws://` added automatically |
+| `--room ROOM` | Room to join (join mode, default: "default") |
+| `--reset` | Delete saved identity and run setup wizard |
+| `--manual` | Full user manual |
+| `--debug` | Verbose debug logging |
 
-### macOS (`macos/`) — En desarrollo
+### macOS (`macos/`) — In development
 
-| Módulo | Archivo | Estado |
-|--------|---------|--------|
-| Gestión de claves PGP | `Crypto/PGPKeyManager.swift` | Implementado |
-| Almacén Keychain | `Crypto/KeychainStore.swift` | Implementado |
-| Errores crypto | `Crypto/CryptoError.swift` | Implementado |
-| Tipos de mensajes de protocolo | `Network/Message.swift` | Implementado |
-| Cliente WebSocket | `Network/StealthClient.swift` | Implementado |
-| Servidor WebSocket | `Network/StealthServer.swift` | Implementado |
-| ViewModel principal | `UI/AppViewModel.swift` | Implementado |
-| Pantalla de configuración | `UI/SetupView.swift` | Implementado |
-| Pantalla de desbloqueo | `UI/UnlockView.swift` | Implementado |
-| Hub / identidad | `UI/HubView.swift` | Implementado |
-| Pantalla de host | `UI/HostView.swift` | Implementado |
-| Pantalla de join | `UI/JoinView.swift` | Implementado |
-| Lifecycle / shutdown graceful | `StealthMessageApp.swift` | Implementado |
+| Module | File | Status |
+|--------|------|--------|
+| PGP key management | `Crypto/PGPKeyManager.swift` | Implemented |
+| Keychain store | `Crypto/KeychainStore.swift` | Implemented |
+| Crypto errors | `Crypto/CryptoError.swift` | Implemented |
+| Protocol message types | `Network/Message.swift` | Implemented |
+| WebSocket client | `Network/StealthClient.swift` | Implemented |
+| WebSocket server | `Network/StealthServer.swift` | Implemented |
+| Main ViewModel | `UI/AppViewModel.swift` | Implemented |
+| Setup screen | `UI/SetupView.swift` | Implemented |
+| Unlock screen | `UI/UnlockView.swift` | Implemented |
+| Hub / identity | `UI/HubView.swift` | Implemented |
+| Host screen | `UI/HostView.swift` | Implemented |
+| Join screen | `UI/JoinView.swift` | Implemented |
+| App lifecycle / graceful shutdown | `StealthMessageApp.swift` | Implemented |
 
-Dependencias externas:
-- **ObjectivePGP 0.99.4** — cifrado/firma RSA-4096 + AES-256
-- Keychain Services (framework del sistema)
+External dependencies:
+- **ObjectivePGP 0.99.4** — RSA-4096 + AES-256 encryption and signing
+- Keychain Services (system framework)
 - Network.framework (`NWListener` / `NWProtocolWebSocket`)
-- URLSession (`URLSessionWebSocketTask`) — lado cliente
+- URLSession (`URLSessionWebSocketTask`) — client side
 
-### Windows (`windows/`) y Linux (`linux/`) — Pendiente
+### Windows (`windows/`) and Linux (`linux/`) — Pending
 
-No iniciados. Deben implementar `docs/protocol.md` completo y el mismo
-comportamiento de crypto que el CLI.
+Not yet started. Must implement the full `docs/protocol.md` and the same crypto
+behaviour as the CLI.
 
 ---
 
-## Capas de cada subproyecto
+## Layers
 
-Todos los subproyectos siguen la misma separación de capas:
+All sub-projects follow the same layer separation:
 
 ```
 ┌──────────────────────┐
-│         UI           │  Presentación (SwiftUI, WinUI 3, GTK4, rich/prompt_toolkit)
+│         UI           │  Presentation (SwiftUI, WinUI 3, GTK4, rich/prompt_toolkit)
 ├──────────────────────┤
-│      ViewModel /     │  Lógica de presentación, estado de la sesión
-│   Controlador        │
+│  ViewModel /         │  Presentation logic, session state
+│  Controller          │
 ├──────────────────────┤
-│       Crypto         │  Cifrado/descifrado PGP, gestión de claves
+│       Crypto         │  PGP encrypt/decrypt, key management
 ├──────────────────────┤
-│       Network        │  WebSocket, protocolo de mensajes
+│       Network        │  WebSocket, protocol message handling
 ├──────────────────────┤
-│      Seguridad       │  Almacén de claves del SO (Keychain / DPAPI / libsecret)
+│      Security        │  OS key store (Keychain / DPAPI / libsecret)
 └──────────────────────┘
 ```
 
-Las dependencias fluyen hacia abajo: UI → ViewModel → Crypto/Network → Seguridad.
-Nunca al revés. `Crypto` y `Network` no conocen la UI.
+Dependencies flow downward: UI → ViewModel → Crypto/Network → Security.
+Never upward. `Crypto` and `Network` have no knowledge of the UI.
 
 ---
 
-## Protocolo de comunicación (v0.8)
+## Protocol (v0.8)
 
-Capa de transporte: **WebSocket** (RFC 6455)
-Formato de mensajes: **JSON** (UTF-8)
-Cifrado de contenido: **OpenPGP** (RFC 4880)
+Transport layer: **WebSocket** (RFC 6455)
+Message format: **JSON** (UTF-8)
+Content encryption: **OpenPGP** (RFC 4880)
 
-### Flujo de descubrimiento de salas (antes de unirse)
+### Room discovery flow (before joining)
 
 ```
-Cliente                        Host
+Client                         Host
    │                             │
    │── { type: "listrooms" } ───►│
    │                             │
-   │◄── { type: "roomsinfo",     │   lista de salas con tipo y
-   │      rooms: [...] }         │   disponibilidad (sin nombres)
+   │◄── { type: "roomsinfo",     │   room list with type and
+   │      rooms: [...] }         │   availability (no peer names)
    │                             │
-   │   [conexión cerrada]        │
+   │   [connection closed]       │
    │                             │
-   │   [el usuario elige sala]   │
+   │   [user picks a room]       │
 ```
 
-### Flujo de una sesión 1:1
+### 1-on-1 session flow
 
 ```
-Cliente (join)                 Host
+Client (join)                  Host
       │                             │
       │── WebSocket connect ────────►│
-      │── { type: "hello",          │  intercambio de claves públicas
-      │     version, room,          │  y versión de protocolo
+      │── { type: "hello",          │  exchange public keys
+      │     version, room,          │  and protocol version
       │     pubkey, alias }         │
       │                             │
       │◄── { type: "hello",         │
       │      pubkey, alias }        │
-      │◄── { type: "roomlist",      │  lista de salas de grupo
-      │      groups: [...] }        │  conocidas en el servidor
+      │◄── { type: "roomlist",      │  list of group rooms
+      │      groups: [...] }        │  on this server
       │                             │
-      │  [usuario verifica fingerprints fuera de banda]
+      │  [users verify fingerprints out-of-band]
       │                             │
-      │── { type: "message",        │  mensajes cifrados con la
-      │     id, payload,            │  clave pública del host
-      │     timestamp }      ───────►│  firmados con clave privada propia
+      │── { type: "message",        │  messages encrypted with
+      │     id, payload,            │  the host's public key,
+      │     timestamp }      ───────►│  signed with own private key
       │◄── { type: "message", ──────│
       │      ... }                  │
       │                             │
-      │── { type: "bye" } ─────────►│  cierre limpio
+      │── { type: "bye" } ─────────►│  clean disconnect
 ```
 
-### Flujo de sala de grupo
+### Group room join flow
 
-Cuando un segundo peer intenta entrar en una sala de grupo:
+When a second peer tries to enter a group room:
 
 ```
-Cliente C                     Host A                    Cliente B
+Client C                      Host A                    Client B
      │                             │                         │
      │── hello (room: "team") ────►│                         │
      │◄── hello ───────────────────│                         │
      │◄── pending ─────────────────│                         │
-     │                             │── on_join_request ─────►│ (UI del host)
+     │                             │── on_join_request ─────►│ (host UI)
      │                             │◄── /allow C ────────────│
      │◄── approved ────────────────│                         │
      │◄── peerlist ────────────────│                         │
      │                             │                         │
-     │── message ─────────────────►│── re-cifra para B ─────►│
+     │── message ─────────────────►│── re-encrypt for B ────►│
      │◄── message (sender: B) ─────│◄── message ─────────────│
 ```
 
-### Desconexión forzada (kick)
+### Host-initiated disconnect (kick)
 
-El host puede expulsar un peer en cualquier momento:
+The host can expel a peer at any time:
 
 ```
-Host                           Cliente
+Host                           Client
   │                                │
   │── { type: "kick",              │
   │     reason: "..." } ──────────►│
-  │                                │  [cliente cierra conexión]
-  │   [host cierra su extremo]     │
+  │                                │  [client closes connection]
+  │   [host closes its end]        │
 ```
 
-Ver `docs/protocol.md` para la especificación completa de todos los tipos de mensaje,
-campos obligatorios, códigos de error y consideraciones de seguridad.
+See `docs/protocol.md` for the complete specification of all message types,
+required fields, error codes, and security considerations.
 
 ---
 
-## Modelo de salas
+## Room model
 
-### Salas 1:1
+### 1-on-1 rooms
 
-- Admiten exactamente **un peer** simultáneo.
-- Un segundo peer recibe error `4006` (sala ocupada).
-- El host puede tener múltiples salas 1:1 activas en paralelo.
-- El host usa `/switch <sala>` para alternar entre conversaciones.
+- Admit exactly **one peer** at a time.
+- A second peer receives error `4006` (room occupied).
+- The host can have multiple 1-on-1 rooms active in parallel.
+- The host uses `/switch <room>` to alternate between conversations.
 
-### Salas de grupo
+### Group rooms
 
-- Admiten **múltiples peers** con aprobación explícita del host.
-- El host convierte una sala con `/group <sala>`.
-- Nuevos peers reciben `pending` hasta que el host ejecuta `/allow <alias>`.
-- El host puede mover peers entre salas con `/move <alias> <sala>` (preaprobado).
-- Los mensajes son re-cifrados por el host para cada destinatario de la sala.
-- Tras cada join/leave, el servidor envía `peerlist` a todos los peers de la sala.
+- Admit **multiple peers** with explicit host approval.
+- The host converts a room with `/group <room>`.
+- New peers receive `pending` until the host runs `/allow <alias>`.
+- The host can move peers between rooms with `/move <alias> <room>` (pre-approved).
+- Messages are re-encrypted by the host for each recipient in the room.
+- After every join/leave, the server sends `peerlist` to all peers in the room.
 
-### Descubrimiento de salas
+### Room discovery
 
-- Los peers reciben la lista de salas de grupo del servidor tras conectarse (`roomlist`).
-- Antes de unirse, pueden consultar todas las salas con sus estados (`listrooms`).
-- La lista nunca expone nombres de usuarios conectados, solo conteos.
+- Peers receive the server's group room list after connecting (`roomlist`).
+- Before joining, they can query all rooms and their status (`listrooms`).
+- The list never exposes connected peer names — only counts.
 
 ---
 
-## Modelo de claves PGP
+## PGP key model
 
 ```
-Cada usuario tiene:
-  - 1 par de claves PGP (pública + privada)  RSA-4096
-  - La clave privada NUNCA sale del dispositivo
-  - La clave pública se intercambia en el handshake
+Each user has:
+  - 1 PGP key pair (public + private)  RSA-4096
+  - The private key NEVER leaves the device
+  - The public key is exchanged during the handshake
 
-Para cifrar un mensaje a B:
-  cifrar(texto, pubkey_B) + firmar(texto, privkey_A)  →  Sign-then-Encrypt
+To encrypt a message to B:
+  encrypt(plaintext, pubkey_B) + sign(plaintext, privkey_A)  →  Sign-then-Encrypt
 
-Para descifrar un mensaje de A:
-  descifrar(payload, privkey_B) + verificar_firma(payload, pubkey_A)
-  → Discard si la firma es inválida; nunca mostrar contenido no verificado
+To decrypt a message from A:
+  decrypt(payload, privkey_B) + verify_signature(payload, pubkey_A)
+  → Discard if signature invalid; never display unverified content
 ```
 
-El almacenamiento seguro de la clave privada usa el mecanismo nativo de cada OS:
+Secure private key storage uses each OS's native mechanism:
 
-| Plataforma | Mecanismo                             |
-|------------|---------------------------------------|
-| macOS      | Keychain Services                     |
-| Windows    | DPAPI                                 |
-| Linux      | libsecret (SecretService DBus)        |
-| CLI        | Archivo `0600` en directorio de configuración (`platformdirs`) |
+| Platform | Mechanism |
+|----------|-----------|
+| macOS    | Keychain Services |
+| Windows  | DPAPI |
+| Linux    | libsecret (SecretService DBus) |
+| CLI      | `0600` file in config directory (`platformdirs`) |
 
-La passphrase protege la clave privada en disco y solo se mantiene en memoria
-durante la sesión activa. Nunca se escribe a disco.
+The passphrase protects the private key on disk and is only held in memory
+during the active session. Never written to disk.
 
-### Reset de identidad
+### Identity reset
 
-Cada cliente debe ofrecer una forma de borrar el keypair y generar uno nuevo:
+Each client must provide a way to delete the keypair and generate a new one:
 
 - **CLI:** `python -m stealth_cli --reset`
-- **macOS:** botón "Reset identity" en la pantalla de desbloqueo y en el hub
+- **macOS:** "Reset identity" button on the unlock screen and in the hub
 
-El reset borra las claves del disco/Keychain, la configuración guardada, y arranca
-el asistente de configuración. El fingerprint anterior queda invalidado; los peers
-deberán verificar el nuevo fuera de banda.
+The reset deletes keys from disk/Keychain and any saved config, then launches
+the setup wizard. The previous fingerprint is invalidated; peers must re-verify
+the new one out-of-band.
 
 ---
 
-## Decisiones de diseño
+## Design decisions
 
-### Sin servidor central
-**Decisión:** modelo peer-to-peer directo (uno actúa de host).
-**Motivo:** elimina el riesgo de filtración de metadatos desde un servidor relay.
-**Consecuencia:** el host debe tener una IP/puerto accesible. Se puede usar
-Tailscale o port forwarding para conexiones por internet.
+### No central server
+**Decision:** direct peer-to-peer model (one acts as host).
+**Reason:** eliminates metadata leakage risk from a relay server.
+**Consequence:** the host needs an accessible IP/port. Tailscale or port
+forwarding can be used for internet connections.
 
-### Sin código compartido entre plataformas
-**Decisión:** cada plataforma implementa el protocolo con su stack nativo.
-**Motivo:** evitar dependencias cruzadas que complicarían el build y la distribución.
-**Consecuencia:** la lógica de protocolo debe estar perfectamente especificada
-en `docs/protocol.md` para garantizar la interoperabilidad.
+### No shared code between platforms
+**Decision:** each platform implements the protocol with its own native stack.
+**Reason:** avoids cross-platform dependencies that would complicate the build
+and distribution.
+**Consequence:** protocol logic must be perfectly specified in `docs/protocol.md`
+to guarantee interoperability.
 
-### PGP sobre soluciones ad-hoc
-**Decisión:** OpenPGP (RFC 4880) con librerías establecidas (pgpy, ObjectivePGP).
-**Motivo:** estándar abierto, auditado, con soporte en todas las plataformas objetivo.
-**Consecuencia:** las librerías PGP disponibles en cada plataforma son distintas;
-la interoperabilidad depende de seguir el estándar, no de la librería.
+### PGP over ad-hoc solutions
+**Decision:** OpenPGP (RFC 4880) with established libraries (pgpy, ObjectivePGP).
+**Reason:** open standard, audited, with support on all target platforms.
+**Consequence:** PGP libraries differ per platform; interoperability depends on
+following the standard, not the library.
 
-### Verificación de identidad fuera de banda
-**Decisión:** no hay PKI ni directorio de claves. La verificación es manual.
-**Motivo:** cualquier servidor de claves centralizado es un punto de fallo y de confianza.
-**Consecuencia:** los usuarios deben comparar fingerprints por otro canal (en persona,
-por teléfono) antes de confiar en una conversación.
+### Out-of-band identity verification
+**Decision:** no PKI or key directory. Verification is manual.
+**Reason:** any centralised key server is a point of failure and trust.
+**Consequence:** users must compare fingerprints over an independent channel
+(in person, by phone) before trusting a conversation.
 
-### Salas de grupo con relay en el host
-**Decisión:** en salas de grupo el host re-cifra y reenvía los mensajes.
-**Motivo:** los peers no tienen las claves públicas de otros peers, solo la del host.
-**Consecuencia:** el host ve el plaintext de los mensajes durante el relay.
-Esto está documentado y es inherente al modelo de confianza sin servidor de claves.
+### Group rooms with host relay
+**Decision:** in group rooms the host re-encrypts and forwards messages.
+**Reason:** peers do not have each other's public keys — only the host's.
+**Consequence:** the host sees plaintext during relay. This is documented and
+inherent to the trust model without a key server.
 
-### Shutdown graceful
-**Decisión:** enviar `bye` a todos los peers antes de cerrar la app.
-**Motivo:** los peers no deben experimentar una caída silenciosa de la conexión.
-**Consecuencia:** el cierre de la app puede tardar un ciclo de red; se usa
-`applicationShouldTerminate` (macOS) para diferir la terminación hasta que
-el shutdown async completa.
+### Graceful shutdown
+**Decision:** send `bye` to all peers before closing the app.
+**Reason:** peers should not experience a silent connection drop.
+**Consequence:** app termination may take one network round-trip; `applicationShouldTerminate`
+(macOS) defers termination until the async shutdown completes.

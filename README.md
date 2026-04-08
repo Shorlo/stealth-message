@@ -1,53 +1,52 @@
 # stealth-message
 
-Chat cifrado end-to-end con claves PGP. Sin servidores centrales. Sin cuentas. Sin metadatos de contenido.
+End-to-end encrypted PGP chat. No central servers. No accounts. No content metadata.
 
 ---
 
-## Qué es
+## What it is
 
-`stealth-message` permite a dos o más personas comunicarse de forma privada mediante
-cifrado OpenPGP (RFC 4880). Los mensajes nunca pasan por un servidor relay: uno de los
-participantes actúa como **host** (levanta un servidor WebSocket) y el resto se conectan
-directamente a él.
+`stealth-message` lets two or more people communicate privately using OpenPGP encryption
+(RFC 4880). Messages never pass through a relay server: one participant acts as **host**
+(starts a WebSocket server) and the others connect directly to it.
 
-**Lo que el servidor no puede ver porque no existe.**
-
----
-
-## Características
-
-- Cifrado end-to-end RSA-4096 + AES-256: solo el destinatario puede leer el mensaje.
-- Firma digital en cada mensaje: identidad del emisor verificable criptográficamente.
-- Sin servidor central: modelo peer-to-peer directo (host + peers).
-- Sin cuentas ni registro: la identidad es la clave PGP.
-- Claves privadas almacenadas con permisos `0600` o en Keychain; passphrase solo en memoria.
-- **Salas 1:1** — exactamente un peer por sala; acceso denegado si está ocupada.
-- **Salas de grupo** — múltiples peers con aprobación explícita del host.
-- Descubrimiento de salas antes de conectarse (`listrooms` / `roomsinfo`).
-- Movimiento de peers entre salas en caliente (`/move`).
-- Desconexión forzada de peers por el host (`kick` / `/disconnect`).
-- Reset de identidad: borra el keypair y genera uno nuevo (`--reset` / botón en UI).
-- Shutdown graceful: se envía `bye` a todos los peers al cerrar la app.
-- Cuatro clientes nativos que interoperan mediante un protocolo común (v0.8).
+**What the server cannot see — because it does not exist.**
 
 ---
 
-## Clientes disponibles
+## Features
 
-| Plataforma | Tecnología           | Directorio   | Estado        |
+- End-to-end encryption RSA-4096 + AES-256: only the recipient can decrypt.
+- Digital signature on every message: sender identity cryptographically verifiable.
+- No central server: direct peer-to-peer model (host + peers).
+- No accounts or registration: identity is the PGP key.
+- Private keys stored with `0600` permissions or in Keychain; passphrase only in memory.
+- **1-on-1 rooms** — exactly one peer per room; access denied if occupied.
+- **Group rooms** — multiple peers with explicit host approval.
+- Room discovery before connecting (`listrooms` / `roomsinfo`).
+- Hot peer movement between rooms (`/move`).
+- Host-initiated peer disconnect (`kick` / `/disconnect`).
+- Identity reset: wipes the keypair and generates a new one (`--reset` / UI button).
+- Graceful shutdown: sends `bye` to all peers when the app closes.
+- Four native clients interoperating through a common protocol (v0.8).
+
+---
+
+## Available clients
+
+| Platform   | Technology           | Directory    | Status        |
 |------------|----------------------|--------------|---------------|
-| Terminal   | Python 3.10+         | `cli/`       | Funcional     |
-| macOS      | Swift 5.9+ / SwiftUI | `macos/`     | En desarrollo |
-| Windows 11 | C# 12 / WinUI 3      | `windows/`   | Pendiente     |
-| Linux      | Python 3.10+ / GTK4  | `linux/`     | Pendiente     |
+| Terminal   | Python 3.10+         | `cli/`       | Functional    |
+| macOS      | Swift 5.9+ / SwiftUI | `macos/`     | In development|
+| Windows 11 | C# 12 / WinUI 3      | `windows/`   | Pending       |
+| Linux      | Python 3.10+ / GTK4  | `linux/`     | Pending       |
 
-Todos los clientes implementan el mismo protocolo (`docs/protocol.md`) y pueden
-comunicarse entre sí independientemente de la plataforma.
+All clients implement the same protocol (`docs/protocol.md`) and can communicate with
+each other regardless of platform.
 
 ---
 
-## Inicio rápido (CLI)
+## Quick start (CLI)
 
 ```bash
 cd cli
@@ -57,95 +56,94 @@ pip install -e .
 python -m stealth_cli
 ```
 
-La primera vez se ejecuta el asistente de configuración: elige un alias y una passphrase.
-Se genera un par de claves RSA-4096 y se muestra tu fingerprint.
+On first run the setup wizard starts: choose an alias and a passphrase.
+An RSA-4096 key pair is generated and your fingerprint is shown.
 
 **Host:**
 ```bash
-python -m stealth_cli --host               # puerto por defecto 8765
-python -m stealth_cli --host --rooms a,b   # múltiples salas
+python -m stealth_cli --host               # default port 8765
+python -m stealth_cli --host --rooms a,b   # multiple rooms
 ```
 
 **Join:**
 ```bash
 python -m stealth_cli --join ALICE_IP:8765 --room a
-# El prefijo ws:// se añade automáticamente si se omite
+# ws:// prefix is added automatically if omitted
 ```
 
-**Manual completo:**
+**Full manual:**
 ```bash
 python -m stealth_cli --manual
 ```
 
 ---
 
-## Conectarse por internet
+## Connecting over the internet
 
-Para conectarse fuera de la red local hay dos opciones:
+To connect outside the local network there are two options:
 
-**Port forwarding** — abre el puerto 8765 en tu router y dale a los peers tu IP pública.
-Si tu ISP usa CG-NAT (la IP WAN del router no coincide con `curl ifconfig.me`), esta
-opción no funcionará.
+**Port forwarding** — open port 8765 on your router and share your public IP with peers.
+If your ISP uses CG-NAT (the WAN IP shown in your router differs from `curl ifconfig.me`),
+this option will not work.
 
-**Tailscale (recomendado)** — crea un túnel WireGuard entre dispositivos sin configurar
-el router. Instala Tailscale en todas las máquinas, usa `tailscale status` para ver las
-IPs `100.x.x.x` y conéctate con esas direcciones.
+**Tailscale (recommended)** — creates a WireGuard tunnel between devices without any
+router configuration. Install Tailscale on all machines, use `tailscale status` to see
+the `100.x.x.x` addresses, and connect using those.
 
-Ver el apartado "Connecting over the internet" del manual (`--manual`) para los pasos
-detallados.
-
----
-
-## Arquitectura
-
-Ver [ARCHITECTURE.md](ARCHITECTURE.md) para la descripción completa del sistema,
-las capas de cada subproyecto y las decisiones de diseño.
-
-El protocolo de comunicación está especificado en [docs/protocol.md](docs/protocol.md).
-Este documento es la fuente de verdad: si hay contradicción entre el código y el protocolo,
-el protocolo manda.
+See the "Connecting over the internet" section of the manual (`--manual`) for step-by-step
+instructions.
 
 ---
 
-## Seguridad
+## Architecture
 
-Ver [SECURITY.md](SECURITY.md) para la política de seguridad completa y el proceso
-de reporte de vulnerabilidades.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a full description of the system, the layers
+of each sub-project, and design decisions.
 
-**No abrir issues públicos para vulnerabilidades de seguridad.**
+The communication protocol is specified in [docs/protocol.md](docs/protocol.md).
+This document is the source of truth: if code and protocol conflict, the protocol wins.
 
 ---
 
-## Contribuir
+## Security
 
-Ver [CONTRIBUTING.md](CONTRIBUTING.md) para la guía de contribución, estándares
-de código y proceso de pull request.
+See [SECURITY.md](SECURITY.md) for the full security policy and the vulnerability
+reporting process.
+
+**Do not open public issues to report security vulnerabilities.**
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution guide, code standards,
+and pull request process.
 
 ---
 
 ## Changelog
 
-Ver [CHANGELOG.md](CHANGELOG.md) para el historial de cambios del proyecto.
+See [CHANGELOG.md](CHANGELOG.md) for the project history.
 
 ---
 
-## Licencia
+## License
 
 Copyright © 2026 Javier Sainz de Baranda y Goñi.
 
-Este programa es [software libre](https://www.gnu.org/philosophy/free-sw.html): puedes
-redistribuirlo y/o modificarlo bajo los términos de la
-[GNU General Public License](https://www.gnu.org/licenses/gpl-3.0.html) tal como la
-publica la [Free Software Foundation](https://www.fsf.org), ya sea la versión 3 de la
-Licencia, o (a tu elección) cualquier versión posterior.
+This program is [free software](https://www.gnu.org/philosophy/free-sw.html): you can
+redistribute it and/or modify it under the terms of the
+[GNU General Public License](https://www.gnu.org/licenses/gpl-3.0.html) as published by
+the [Free Software Foundation](https://www.fsf.org), either version 3 of the License,
+or (at your option) any later version.
 
-**Este programa se distribuye con la esperanza de que sea útil, pero SIN NINGUNA
-GARANTÍA; sin siquiera la garantía implícita de COMERCIABILIDAD o IDONEIDAD PARA UN
-FIN DETERMINADO.** Consulta la GNU General Public License para más detalles.
+**This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.** See the GNU General Public License for more details.
 
-Deberías haber recibido una [copia](LICENSE) de la GNU General Public License junto con
-este programa. Si no es así, visita <https://www.gnu.org/licenses/>.
+You should have received a [copy](LICENSE) of the GNU General Public License along with
+this program. If not, see <https://www.gnu.org/licenses/>.
 
-Para proyectos donde los términos de la GNU General Public License impidan el uso de
-este software o requieran la publicación no deseada del código fuente de productos
-comerciales, puedes [solicitar una licencia especial](mailto:info@syberiancode.com?subject=stealth-message).
+For projects where the terms of the GNU General Public License prevent the use of this
+software or require unwanted publication of the source code of commercial products, you
+may [apply for a special license](mailto:info@syberiancode.com?subject=stealth-message).
