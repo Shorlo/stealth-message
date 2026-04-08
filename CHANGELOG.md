@@ -10,6 +10,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `cli/README.md`: comprehensive installation and usage guide — curl-based installation for
+  macOS/Linux and Windows (PowerShell), pip alternative, security features (RSA-4096,
+  sign-then-encrypt, passphrase protection, no central server), requirements, and links
+  to PyPI and GitHub.
+- `cli/pyproject.toml`: PyPI metadata — license (GPL-3.0-only), keywords (chat, encryption,
+  pgp, privacy, end-to-end), classifiers (Development Status, License, Python 3.10+/3.11/3.12),
+  and project URLs (Homepage, Repository, Issues).
 - `macos/StealthMessageTests/CryptoTests.swift`: full test suite for `PGPKeyManager` —
   keypair generation (armored block format, public/private distinctness), fingerprint
   format (10 groups of 4 uppercase hex chars), passphrase validation (correct, wrong,
