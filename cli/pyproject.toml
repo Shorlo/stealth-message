@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stealth-message-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "Terminal client for stealth-message — end-to-end encrypted PGP chat"
 readme = {file = "README.md", content-type = "text/markdown"}
 license = {text = "GPL-3.0-only"}
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10"
 keywords = ["chat", "encryption", "pgp", "privacy", "end-to-end"]
 classifiers = [
     "Development Status :: 3 - Alpha",

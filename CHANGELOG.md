@@ -10,6 +10,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `install.sh`: curl-based installer for Linux and macOS — detects Python 3.10+, prefers
+  pipx, falls back to pip --user with PATH guidance.
+- `install.ps1`: PowerShell installer for Windows — same logic, compatible with
+  `irm | iex` one-liner.
+- `cli/pyproject.toml`: bumped to 0.1.1, removed `<3.13` upper bound on `requires-python`
+  to support Python 3.13+.
+
+
 - `cli/README.md`: comprehensive installation and usage guide — curl-based installation for
   macOS/Linux and Windows (PowerShell), pip alternative, security features (RSA-4096,
   sign-then-encrypt, passphrase protection, no central server), requirements, and links
