@@ -17,9 +17,8 @@ error()   { echo -e "${RED}[stealth-message] Error:${NC} $*" >&2; exit 1; }
 find_python() {
     for cmd in python3.13 python3.12 python3.11 python3.10 python3 python; do
         if command -v "$cmd" &>/dev/null; then
-            local minor
+            local minor major
             minor=$("$cmd" -c "import sys; print(sys.version_info.minor)" 2>/dev/null)
-            local major
             major=$("$cmd" -c "import sys; print(sys.version_info.major)" 2>/dev/null)
             if [ "$major" = "3" ] && [ "$minor" -ge "$MIN_PYTHON_MINOR" ] 2>/dev/null; then
                 echo "$cmd"
@@ -30,37 +29,46 @@ find_python() {
     return 1
 }
 
+# ── Install pipx via system package manager ────────────────────────────────────
+install_pipx() {
+    info "Installing pipx..."
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get install -y pipx
+    elif command -v brew &>/dev/null; then
+        brew install pipx
+    elif command -v dnf &>/dev/null; then
+        sudo dnf install -y pipx
+    elif command -v pacman &>/dev/null; then
+        sudo pacman -Sy --noconfirm python-pipx
+    else
+        return 1
+    fi
+}
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 info "Installing $PACKAGE..."
 
 PYTHON=$(find_python) || error "Python 3.10 or newer is required.\nInstall it from https://python.org or via your package manager."
 info "Using $PYTHON ($(${PYTHON} --version))"
 
-# pipx — preferred: isolated environment, no system pollution
-if command -v pipx &>/dev/null; then
-    info "Installing via pipx..."
-    pipx install --python "$PYTHON" "$PACKAGE"
-else
-    # pip fallback with --user
-    warning "pipx not found — falling back to pip install --user"
-    warning "Consider installing pipx for cleaner management: https://pipx.pypa.io"
-    "$PYTHON" -m pip install --user --upgrade "$PACKAGE"
-
-    # Ensure ~/.local/bin is in PATH for this session
-    export PATH="$HOME/.local/bin:$PATH"
-
-    # Warn if not in shell config
-    SHELL_RC=""
-    case "$SHELL" in
-        */zsh)  SHELL_RC="$HOME/.zshrc" ;;
-        */bash) SHELL_RC="$HOME/.bashrc" ;;
-    esac
-    if [ -n "$SHELL_RC" ] && ! grep -q '\.local/bin' "$SHELL_RC" 2>/dev/null; then
-        warning "Add ~/.local/bin to your PATH permanently:"
-        warning "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> $SHELL_RC"
+# Ensure pipx is available — install it if not
+if ! command -v pipx &>/dev/null; then
+    warning "pipx not found — attempting to install it automatically..."
+    if install_pipx; then
+        # pipx may not be in PATH immediately after apt install
+        export PATH="$HOME/.local/bin:$PATH"
+    else
+        error "Could not install pipx automatically.\nPlease install it manually: https://pipx.pypa.io\nThen re-run this installer."
     fi
 fi
+
+info "Installing via pipx..."
+pipx install --python "$PYTHON" "$PACKAGE"
+
+# Ensure pipx bin dir is in PATH
+pipx ensurepath --quiet 2>/dev/null || true
 
 echo ""
 info "$BINARY installed successfully!"
 info "Run: $BINARY --help"
+info "If the command is not found, restart your terminal or run: pipx ensurepath"
