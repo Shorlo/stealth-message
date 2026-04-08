@@ -9,6 +9,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `README.md`: expanded CLI section with installation, first run, room types,
+  room name quoting rules, chat commands table, identity reset, and full macOS
+  client section (requirements, how to open in Xcode, implementation status).
+- `cli/stealth_cli/__main__.py`: added "Room names" section to the built-in
+  manual documenting space support and when quotes are needed on the command
+  line vs. inside chat commands.
+
 ### Fixed
 - `cli/tests/test_network.py`: three group-room tests were deadlocking because
   the first peer (`cli1`) was awaited directly while the server held it in

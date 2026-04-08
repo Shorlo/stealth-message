@@ -46,35 +46,155 @@ each other regardless of platform.
 
 ---
 
-## Quick start (CLI)
+## CLI client (`cli/`)
+
+### Installation
 
 ```bash
 cd cli
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e .
+```
+
+Requires Python 3.10 or later.
+
+### First run
+
+```bash
 python -m stealth_cli
 ```
 
-On first run the setup wizard starts: choose an alias and a passphrase.
-An RSA-4096 key pair is generated and your fingerprint is shown.
+A setup wizard starts automatically and asks for:
 
-**Host:**
+- **Alias** — your display name, visible to peers (max 64 characters).
+- **Passphrase** — protects your private key on disk (min 8 characters).
+
+An RSA-4096 key pair is generated and saved. Your **fingerprint** is shown at
+the end — share it with peers over an independent channel (phone, in person)
+so they can verify your identity.
+
+### Starting a session
+
+**Host** — one participant starts the server:
+
 ```bash
-python -m stealth_cli --host               # default port 8765
-python -m stealth_cli --host --rooms a,b   # multiple rooms
+python -m stealth_cli --host               # port 8765 (default)
+python -m stealth_cli --host 9000          # custom port
+python -m stealth_cli --host --rooms a,b,c # pre-create named rooms
 ```
 
-**Join:**
+**Join** — everyone else connects to the host:
+
 ```bash
+python -m stealth_cli --join ALICE_IP:8765
 python -m stealth_cli --join ALICE_IP:8765 --room a
 # ws:// prefix is added automatically if omitted
 ```
 
-**Full manual:**
+**Interactive mode** (no flags) — the program walks you through host/join
+selection, shows available rooms fetched from the server, and asks which one
+to join.
+
+### Room types
+
+**1-on-1 rooms** — admit exactly one peer. A second connection attempt gets
+error 4006 (room occupied). The host can manage multiple 1-on-1 rooms in
+parallel and switch between them with `/switch`.
+
+**Group rooms** — admit multiple peers with host approval. Convert any room
+to group mode at runtime:
+
+```
+[Alice@lobby] /group team
+[Alice@lobby] /move Bob team    # invite Bob — no approval prompt
+```
+
+### Room names
+
+Room names can contain any characters, including spaces (up to 64 chars).
+On the command line, quote names that contain spaces:
+
+```bash
+python -m stealth_cli --host --rooms "sala 1","sala 2"
+python -m stealth_cli --join ALICE_IP:8765 --room "sala 1"
+```
+
+Inside the chat, quotes are not needed — everything after the command is
+the room name:
+
+```
+/switch sala 1
+/new sala 1
+```
+
+### Chat commands
+
+| Command | Who | Action |
+|---------|-----|--------|
+| `/switch <room>` | all | Change active room |
+| `/rooms` | all | List all known rooms and their status |
+| `/fp` | all | Show the current peer's PGP fingerprint |
+| `/help` | all | Show available commands |
+| `/quit` | all | Close the session cleanly |
+| `/new <room>` | host | Create a new 1-on-1 room at runtime |
+| `/group <room>` | host | Convert a room to group mode |
+| `/move <alias> <room>` | host | Move a peer to a different room |
+| `/allow <alias>` | host | Approve a pending join request |
+| `/deny <alias>` | host | Deny a pending join request |
+| `/disconnect [alias]` | host | Force-disconnect a peer |
+
+### Identity reset
+
+```bash
+python -m stealth_cli --reset
+```
+
+Wipes the stored key pair and config and immediately runs the setup wizard
+so you can choose a new alias and generate a fresh key in one step.
+
+### Full manual
+
 ```bash
 python -m stealth_cli --manual
 ```
+
+---
+
+## macOS client (`macos/`)
+
+Native SwiftUI app for macOS 13 (Ventura) and later.
+
+### Requirements
+
+- macOS 13.0+
+- Xcode 15+
+- Swift 5.9+
+
+The project uses [ObjectivePGP](https://github.com/krzyzanowskim/ObjectivePGP)
+(v0.99.4) via Swift Package Manager for all PGP operations, and
+`URLSessionWebSocketTask` for WebSocket — no external networking dependencies.
+Private keys are stored in the Keychain
+(`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`), never on disk.
+
+### Opening the project
+
+```bash
+open macos/StealthMessage/StealthMessage.xcodeproj
+```
+
+Xcode resolves the SPM dependency automatically on first open.
+
+### Current status
+
+| Component | Status |
+|-----------|--------|
+| `Crypto/` — PGPKeyManager, KeychainStore | Done |
+| `Network/` — StealthServer, StealthClient, wire types | Done |
+| `UI/` — ViewModels, Views, setup wizard, chat | Not yet started |
+
+The crypto and network layers are complete and interoperable with the CLI.
+The UI layer (SwiftUI views and view-models) is the next milestone.
 
 ---
 

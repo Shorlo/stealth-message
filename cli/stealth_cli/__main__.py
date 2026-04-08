@@ -643,6 +643,28 @@ so you can choose a new alias and generate a fresh RSA-4096 keypair in one step.
 
 ---
 
+## Room names
+
+Room names can contain any characters, including spaces, and can be up to
+64 characters long. When passing a name with spaces on the command line,
+wrap it in quotes:
+
+```
+python -m stealth_cli --host --rooms "sala 1","sala 2"
+python -m stealth_cli --join HOST:8765 --room "sala 1"
+```
+
+Inside the chat (interactive commands) quotes are not needed — everything
+after the command is taken as the room name:
+
+```
+/new sala 1
+/switch sala 1
+/group sala 1
+```
+
+---
+
 ## Flags reference
 
 | Flag | Description |
