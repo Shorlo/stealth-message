@@ -7,16 +7,35 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2CBA730230F0B832A9BB118E /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 728518D8EF678C1C8BFBDAC9 /* Cocoa.framework */; };
 		3686BB532F83B132007DF958 /* ObjectivePGP in Frameworks */ = {isa = PBXBuildFile; productRef = 3686BB522F83B132007DF958 /* ObjectivePGP */; };
+		A322C048C2826FC4667A5B1C /* CryptoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAE0A5A6760D23B34C37364E /* CryptoTests.swift */; };
+		B05211BA61CF03E97E50ACC3 /* NetworkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20C860637C646553312DC9D /* NetworkTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		946844F48DE4E97D04EF838F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3686BB3B2F83AC85007DF958 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3686BB422F83AC85007DF958;
+			remoteInfo = StealthMessage;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		3686BB432F83AC85007DF958 /* StealthMessage.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StealthMessage.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		59AE44A1038C87698F69D8BC /* StealthMessageTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StealthMessageTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		728518D8EF678C1C8BFBDAC9 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		CAE0A5A6760D23B34C37364E /* CryptoTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CryptoTests.swift; sourceTree = "<group>"; };
+		D20C860637C646553312DC9D /* NetworkTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NetworkTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3686BB452F83AC85007DF958 /* StealthMessage */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = StealthMessage;
 			sourceTree = "<group>";
 		};
@@ -31,14 +50,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		93A6438648A3D7A9979371B2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2CBA730230F0B832A9BB118E /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		061F48444C52668B3479C183 /* StealthMessageTests */ = {
+			isa = PBXGroup;
+			children = (
+				CAE0A5A6760D23B34C37364E /* CryptoTests.swift */,
+				D20C860637C646553312DC9D /* NetworkTests.swift */,
+			);
+			name = StealthMessageTests;
+			path = StealthMessageTests;
+			sourceTree = "<group>";
+		};
 		3686BB3A2F83AC85007DF958 = {
 			isa = PBXGroup;
 			children = (
 				3686BB452F83AC85007DF958 /* StealthMessage */,
 				3686BB442F83AC85007DF958 /* Products */,
+				49866A90EE3825D2F5E62F52 /* Frameworks */,
+				061F48444C52668B3479C183 /* StealthMessageTests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -46,8 +85,25 @@
 			isa = PBXGroup;
 			children = (
 				3686BB432F83AC85007DF958 /* StealthMessage.app */,
+				59AE44A1038C87698F69D8BC /* StealthMessageTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		49866A90EE3825D2F5E62F52 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				4FEB50D9E96109C8DA33D928 /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		4FEB50D9E96109C8DA33D928 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				728518D8EF678C1C8BFBDAC9 /* Cocoa.framework */,
+			);
+			name = "OS X";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -75,6 +131,24 @@
 			productName = StealthMessage;
 			productReference = 3686BB432F83AC85007DF958 /* StealthMessage.app */;
 			productType = "com.apple.product-type.application";
+		};
+		3A838629AFE9B1A6AC6945C5 /* StealthMessageTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D5DE8AC0E7A5598EAB3CF8BB /* Build configuration list for PBXNativeTarget "StealthMessageTests" */;
+			buildPhases = (
+				841EDEC71EBCEBC27EB16A26 /* Sources */,
+				93A6438648A3D7A9979371B2 /* Frameworks */,
+				4449CB17E6FDA03C02297E13 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6ABEF6F9738520452E07791E /* PBXTargetDependency */,
+			);
+			name = StealthMessageTests;
+			productName = StealthMessageTests;
+			productReference = 59AE44A1038C87698F69D8BC /* StealthMessageTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -109,12 +183,20 @@
 			projectRoot = "";
 			targets = (
 				3686BB422F83AC85007DF958 /* StealthMessage */,
+				3A838629AFE9B1A6AC6945C5 /* StealthMessageTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		3686BB412F83AC85007DF958 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4449CB17E6FDA03C02297E13 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -131,9 +213,52 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		841EDEC71EBCEBC27EB16A26 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A322C048C2826FC4667A5B1C /* CryptoTests.swift in Sources */,
+				B05211BA61CF03E97E50ACC3 /* NetworkTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		6ABEF6F9738520452E07791E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = StealthMessage;
+			target = 3686BB422F83AC85007DF958 /* StealthMessage */;
+			targetProxy = 946844F48DE4E97D04EF838F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		18767CF7A9B78948EE61F842 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W33NKT8ZW6;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PLATFORM_DIR)/Developer/Library/Frameworks",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.syberiancode.StealthMessage.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/StealthMessage.app/Contents/MacOS/StealthMessage";
+			};
+			name = Debug;
+		};
 		3686BB4C2F83AC86007DF958 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -320,6 +445,31 @@
 			};
 			name = Release;
 		};
+		80ECE3DD5BD1250C3A3F2840 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W33NKT8ZW6;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PLATFORM_DIR)/Developer/Library/Frameworks",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.syberiancode.StealthMessage.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/StealthMessage.app/Contents/MacOS/StealthMessage";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -337,6 +487,15 @@
 			buildConfigurations = (
 				3686BB4F2F83AC86007DF958 /* Debug */,
 				3686BB502F83AC86007DF958 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D5DE8AC0E7A5598EAB3CF8BB /* Build configuration list for PBXNativeTarget "StealthMessageTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				80ECE3DD5BD1250C3A3F2840 /* Release */,
+				18767CF7A9B78948EE61F842 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -192,10 +192,9 @@ Xcode resolves the SPM dependency automatically on first open.
 | `Crypto/` — PGPKeyManager, KeychainStore | Done |
 | `Network/` — StealthServer, StealthClient, wire types | Done |
 | `UI/` — ViewModels, Views, setup wizard, chat | Done |
-| Tests — CryptoTests, NetworkTests | Pending |
+| Tests — CryptoTests, NetworkTests | Done |
 
-The crypto, network, and UI layers are complete and interoperable with the CLI.
-Tests are the only remaining milestone before the client is considered fully shipped.
+All layers are complete and interoperable with the CLI.
 
 ---
 

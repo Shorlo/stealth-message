@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Protocol errors
 
 /// Errors produced by the network / protocol layer.
-enum ProtocolError: Error, LocalizedError {
+enum ProtocolError: Error, LocalizedError, Equatable {
     case malformed(String)
     case versionMismatch(String)
     case roomFull

@@ -9,7 +9,29 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `macos/StealthMessageTests/CryptoTests.swift`: full test suite for `PGPKeyManager` —
+  keypair generation (armored block format, public/private distinctness), fingerprint
+  format (10 groups of 4 uppercase hex chars), passphrase validation (correct, wrong,
+  empty), encrypt/decrypt round-trip, base64url encoding of ciphertext, corrupted-payload
+  rejection, and documented ObjectivePGP behaviour on wrong sender key.
+- `macos/StealthMessageTests/NetworkTests.swift`: full test suite for the network layer —
+  `IncomingFrame` parser (all frame types: `hello`, `roomsinfo`, `roomlist`, `message`,
+  `peerlist`, `move`, `kick`, `error`, `pending`, `approved`, `ping`, `pong`, `bye`,
+  `unknown`; malformed / missing-field cases), `wireJSON` serialiser, `base64urlEncode` /
+  `base64urlDecodeString` helpers, and `withDeadline` timeout helper.
+
 ### Changed
+- `macos/StealthMessage/Crypto/CryptoError.swift`: `CryptoError` now conforms to
+  `Equatable` (required for `#expect(throws:)` in Swift Testing).
+- `macos/StealthMessage/Network/Message.swift`: `ProtocolError` now conforms to
+  `Equatable` (required for `#expect(throws:)` in Swift Testing).
+- `README.md`: macOS implementation status table updated — Tests row changed from
+  "Pending" to "Done"; summary line updated to reflect full completion.
+- `macos/CLAUDE.md`: "What to implement next" section replaced with "Tests" section
+  documenting the completed test suites and the `Equatable` conformance rationale.
+
+### Changed (previous entry)
 - `README.md`: macOS status updated to "Functional" in the clients table; implementation
   status table corrected — UI layer is complete, only tests remain pending.
 - `macos/CLAUDE.md`: implementation state section updated to reflect completed UI layer

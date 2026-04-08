@@ -5,7 +5,7 @@ import Foundation
 /// `signatureInvalid` maps directly to protocol.md §4:
 /// "If the signature is not valid, discard the message."
 /// Callers must never display plaintext when this error is thrown.
-enum CryptoError: Error, LocalizedError {
+enum CryptoError: Error, LocalizedError, Equatable {
     case signatureInvalid
     case decryptionFailed(String)
     case keyGenerationFailed(String)
