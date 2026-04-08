@@ -13,6 +13,15 @@ Flow:
 
 from __future__ import annotations
 
+# Python 3.13+ removed imghdr from stdlib; pgpy uses it for image detection.
+# Inject a minimal shim before pgpy is imported.
+import sys as _sys
+if _sys.version_info >= (3, 13) and "imghdr" not in _sys.modules:
+    import types as _types
+    _imghdr = _types.ModuleType("imghdr")
+    _imghdr.what = lambda *_a, **_kw: None  # type: ignore[attr-defined]
+    _sys.modules["imghdr"] = _imghdr
+
 import argparse
 import asyncio
 import logging
