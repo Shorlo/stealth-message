@@ -37,7 +37,7 @@ End-to-end encrypted PGP chat. No central servers. No accounts. No content metad
 | Platform   | Technology           | Directory    | Status        |
 |------------|----------------------|--------------|---------------|
 | Terminal   | Python 3.10+         | `cli/`       | Functional    |
-| macOS      | Swift 5.9+ / SwiftUI | `macos/`     | In development|
+| macOS      | Swift 5.9+ / SwiftUI | `macos/`     | Functional    |
 | Windows 11 | C# 12 / WinUI 3      | `windows/`   | Pending       |
 | Linux      | Python 3.10+ / GTK4  | `linux/`     | Pending       |
 
@@ -191,10 +191,11 @@ Xcode resolves the SPM dependency automatically on first open.
 |-----------|--------|
 | `Crypto/` — PGPKeyManager, KeychainStore | Done |
 | `Network/` — StealthServer, StealthClient, wire types | Done |
-| `UI/` — ViewModels, Views, setup wizard, chat | Not yet started |
+| `UI/` — ViewModels, Views, setup wizard, chat | Done |
+| Tests — CryptoTests, NetworkTests | Pending |
 
-The crypto and network layers are complete and interoperable with the CLI.
-The UI layer (SwiftUI views and view-models) is the next milestone.
+The crypto, network, and UI layers are complete and interoperable with the CLI.
+Tests are the only remaining milestone before the client is considered fully shipped.
 
 ---
 

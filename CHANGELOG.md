@@ -9,6 +9,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- `README.md`: macOS status updated to "Functional" in the clients table; implementation
+  status table corrected — UI layer is complete, only tests remain pending.
+- `macos/CLAUDE.md`: implementation state section updated to reflect completed UI layer
+  (`AppViewModel`, `SetupView`, `UnlockView`, `HubView`, `HostView`, `JoinView`,
+  `ContentView`, `StealthMessageApp`); "What to implement" section replaced with
+  "What to implement next" focused on the remaining tests.
+
 ### Added
 - `README.md`: expanded CLI section with installation, first run, room types,
   room name quoting rules, chat commands table, identity reset, and full macOS
