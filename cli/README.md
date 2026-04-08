@@ -37,4 +37,4 @@ stealth-cli
 
 ## License
 
-GPL-3.0. See [LICENSE](https://github.com/syberiancode/stealth-message/blob/main/LICENSE).
+GPL-3.0. See [LICENSE](https://github.com/Shorlo/stealth-message/blob/main/LICENSE).
