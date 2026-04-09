@@ -75,9 +75,9 @@ struct SetupView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 28) {
+            VStack(spacing: 32) {
                 // Header
-                VStack(spacing: 8) {
+                VStack(spacing: 10) {
                     Image(systemName: "shield.lefthalf.filled")
                         .font(.system(size: 52))
                         .foregroundStyle(.tint)
@@ -86,6 +86,7 @@ struct SetupView: View {
                     Text("Create your encrypted identity")
                         .foregroundStyle(.secondary)
                 }
+                .padding(.top, 8)
 
                 if vm.generatedFingerprint.isEmpty {
                     formSection
@@ -101,76 +102,118 @@ struct SetupView: View {
     // MARK: - Form
 
     private var formSection: some View {
-        VStack(spacing: 20) {
-            Form {
-                Section {
-                    LabeledContent("Display name") {
-                        TextField("e.g. Alice", text: $vm.alias)
-                            .textFieldStyle(.plain)
-                    }
-                    if vm.aliasExceedsLimit {
-                        Label("Alias must be 64 characters or fewer", systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-                } footer: {
-                    Text("Visible to peers you chat with.")
-                        .font(.caption)
-                }
+        VStack(alignment: .leading, spacing: 20) {
 
-                Section {
-                    LabeledContent("Passphrase") {
-                        SecureField("Min. 8 characters", text: $vm.passphrase)
-                            .textFieldStyle(.plain)
+            // ── Display name ─────────────────────────────────────────────
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Display name")
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 2)
+
+                TextField("e.g. Alice", text: $vm.alias)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(.controlBackgroundColor))
+                            .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color(.separatorColor), lineWidth: 0.5)
+                    )
+
+                Group {
+                    if vm.aliasExceedsLimit {
+                        Label("Alias must be 64 characters or fewer", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("Visible to peers you chat with.")
+                            .foregroundStyle(.secondary)
                     }
-                    LabeledContent("Confirm") {
-                        SecureField("Repeat passphrase", text: $vm.confirmPassphrase)
-                            .textFieldStyle(.plain)
-                    }
-                } footer: {
-                    Group {
-                        if !vm.confirmPassphrase.isEmpty {
-                            Text(vm.passphrase == vm.confirmPassphrase
-                                 ? "✓ Passphrases match"
-                                 : "✗ Passphrases don't match")
-                                .foregroundStyle(vm.passphrase == vm.confirmPassphrase
-                                                 ? Color.green : Color.red)
-                        }
-                    }
-                    .font(.caption)
+                }
+                .font(.caption)
+                .padding(.horizontal, 2)
+            }
+
+            // ── Passphrase ───────────────────────────────────────────────
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Passphrase")
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 2)
+
+                VStack(spacing: 0) {
+                    SecureField("Minimum 8 characters", text: $vm.passphrase)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+
+                    Divider()
+                        .padding(.leading, 14)
+
+                    SecureField("Confirm passphrase", text: $vm.confirmPassphrase)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(.controlBackgroundColor))
+                        .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color(.separatorColor), lineWidth: 0.5)
+                )
+
+                if !vm.confirmPassphrase.isEmpty {
+                    Text(vm.passphrase == vm.confirmPassphrase
+                         ? "✓ Passphrases match"
+                         : "✗ Passphrases don't match")
+                        .font(.caption)
+                        .foregroundStyle(vm.passphrase == vm.confirmPassphrase ? Color.green : Color.red)
+                        .padding(.horizontal, 2)
                 }
             }
-            .formStyle(.grouped)
-            .fixedSize(horizontal: false, vertical: true)
 
+            // ── Error ────────────────────────────────────────────────────
             if let err = vm.errorMessage {
                 Text(err)
                     .foregroundStyle(.red)
                     .font(.caption)
                     .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
             }
 
-            if vm.isGenerating {
-                VStack(spacing: 8) {
-                    ProgressView()
-                    Text("Generating RSA-4096 key pair — this takes a moment…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            // ── CTA ──────────────────────────────────────────────────────
+            VStack(spacing: 12) {
+                if vm.isGenerating {
+                    VStack(spacing: 8) {
+                        ProgressView()
+                        Text("Generating RSA-4096 key pair — this takes a moment…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    Button("Generate Keys") {
+                        Task { await vm.generate() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(!vm.canGenerate)
+                    .frame(maxWidth: .infinity)
                 }
-            } else {
-                Button("Generate Keys") {
-                    Task { await vm.generate() }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(!vm.canGenerate)
-            }
 
-            Text("Your private key is stored only in your macOS Keychain and never leaves this device.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                Text("Your private key is stored only in your macOS Keychain and never leaves this device.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
+        .frame(maxWidth: 400)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Fingerprint confirmation
@@ -186,7 +229,7 @@ struct SetupView: View {
 
             VStack(spacing: 8) {
                 Text("Your PGP fingerprint")
-                    .font(.caption.bold())
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 HStack(spacing: 8) {
                     Text(vm.generatedFingerprint)

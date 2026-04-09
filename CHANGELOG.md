@@ -18,6 +18,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
   (16×16, 32×32, 64×64, 128×128, 256×256, 512×512, 1024×1024).
 
 ### Changed
+- `macos/StealthMessage/StealthMessage/UI/SetupView.swift`: refactored setup form UI from
+  SwiftUI `Form` to custom `VStack`-based layout with individual text fields and improved
+  spacing (28→32 header, 8→10 subtitle, +8 padding). Styled input fields with background,
+  border, and shadow effects using `controlBackgroundColor` and `separatorColor`. Reorganized
+  sections with dividers and better visual hierarchy. Fixed label font weight.
 - `cli/stealth_cli/__main__.py`: updated built-in manual (`--manual`) to use the installed
   command `stealth-cli` in all examples instead of the development invocation
   `python -m stealth_cli`. Removed the "Running the tests" section (development-only
