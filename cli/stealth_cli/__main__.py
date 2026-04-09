@@ -35,7 +35,6 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.panel import Panel
-from rich.rule import Rule
 from rich.text import Text
 
 from stealth_cli import config
@@ -372,7 +371,7 @@ All roles send and receive messages equally once connected.
 The first time you run the program, a setup wizard starts automatically:
 
 ```
-python -m stealth_cli
+stealth-cli
 ```
 
 The wizard asks for:
@@ -395,14 +394,14 @@ independent channel (in person, by phone) so they can verify your identity.
 ### Alice — host mode (single 1-on-1 room)
 
 ```
-python -m stealth_cli --host           # default port 8765
-python -m stealth_cli --host 9000      # custom port
+stealth-cli --host           # default port 8765
+stealth-cli --host 9000      # custom port
 ```
 
 ### Alice — host mode (multiple rooms)
 
 ```
-python -m stealth_cli --host --rooms bob,carol,team
+stealth-cli --host --rooms bob,carol,team
 ```
 
 This creates three independent rooms. Peers connect to a specific room by name.
@@ -410,14 +409,14 @@ This creates three independent rooms. Peers connect to a specific room by name.
 ### Bob — join mode
 
 ```
-python -m stealth_cli --join ALICE_IP:8765          # ws:// added automatically
-python -m stealth_cli --join ALICE_IP:8765 --room bob
+stealth-cli --join ALICE_IP:8765          # ws:// added automatically
+stealth-cli --join ALICE_IP:8765 --room bob
 ```
 
 ### Interactive mode (no flags)
 
 ```
-python -m stealth_cli
+stealth-cli
 ```
 
 When joining interactively, after entering the server address the program
@@ -502,8 +501,8 @@ No router configuration needed.
 2. Alice shares her device with peers from the Tailscale web console
    ("Share node" — they only see Alice's machine, not her whole network).
 3. Run `tailscale status` to see each other's `100.x.x.x` addresses.
-4. Alice: `python -m stealth_cli --host`
-5. Others: `python -m stealth_cli --join ALICE_TAILSCALE_IP:8765 --room <name>`
+4. Alice: `stealth-cli --host`
+5. Others: `stealth-cli --join ALICE_TAILSCALE_IP:8765 --room <name>`
 6. Revoke the share when done.
 
 > With Tailscale, messages travel encrypted by WireGuard AND by PGP —
@@ -540,17 +539,17 @@ No router configuration needed.
 
 **Alice (host):**
 ```
-python -m stealth_cli --host --rooms bob,carol
+stealth-cli --host --rooms bob,carol
 ```
 
 **Bob:**
 ```
-python -m stealth_cli --join ALICE_IP:8765 --room bob
+stealth-cli --join ALICE_IP:8765 --room bob
 ```
 
 **Carol:**
 ```
-python -m stealth_cli --join ALICE_IP:8765 --room carol
+stealth-cli --join ALICE_IP:8765 --room carol
 ```
 
 Alice uses `/switch bob` and `/switch carol` to alternate between conversations.
@@ -562,7 +561,7 @@ Neither Bob nor Carol can see each other's messages.
 
 **Alice (host):**
 ```
-python -m stealth_cli --host --rooms lobby,team
+stealth-cli --host --rooms lobby,team
 [Alice@lobby] /group team       # convert team to group mode
 [Alice@lobby] /move Bob team    # move Bob — pre-approved
 ```
@@ -575,7 +574,7 @@ python -m stealth_cli --host --rooms lobby,team
 
 **Carol** (joins directly):
 ```
-python -m stealth_cli --join ALICE_IP:8765 --room team
+stealth-cli --join ALICE_IP:8765 --room team
   ⏳ Waiting for host to approve your entry into room team…
 ```
 
@@ -641,7 +640,7 @@ A wrong passphrase exits immediately without loading any data.
 To delete your saved keypair and start over with a new alias:
 
 ```
-python -m stealth_cli --reset
+stealth-cli --reset
 ```
 
 This wipes the stored keys and config and immediately runs the setup wizard
@@ -659,8 +658,8 @@ Room names can contain any characters, including spaces, and can be up to
 wrap it in quotes:
 
 ```
-python -m stealth_cli --host --rooms "sala 1","sala 2"
-python -m stealth_cli --join HOST:8765 --room "sala 1"
+stealth-cli --host --rooms "sala 1","sala 2"
+stealth-cli --join HOST:8765 --room "sala 1"
 ```
 
 Inside the chat (interactive commands) quotes are not needed — everything
@@ -687,15 +686,6 @@ after the command is taken as the room name:
 | `--debug` | Enable verbose debug logging |
 | `--help` | Show short usage summary |
 
----
-
-## Running the tests
-
-```
-cd cli
-source .venv/bin/activate
-pytest tests/ -v
-```
 """
 
     c.print(Padding(Markdown(manual), (0, 2)))

@@ -9,6 +9,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- `cli/stealth_cli/__main__.py`: updated built-in manual (`--manual`) to use the installed
+  command `stealth-cli` in all examples instead of the development invocation
+  `python -m stealth_cli`. Removed the "Running the tests" section (development-only
+  content not relevant to end users). Removed unused `Rule` import.
+- `cli/pyproject.toml`: bumped version to 0.1.7.
+
 ### Added
 - `install.sh`: curl-based installer for Linux and macOS — detects Python 3.10+, prefers
   pipx, falls back to pip --user with PATH guidance.
