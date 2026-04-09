@@ -9,6 +9,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `macos/make_dmg.sh`: shell script that builds the Release app with `xcodebuild` and packages
+  it as a distributable DMG (with custom background, icon layout, and Applications symlink).
+- `macos/generate_dmg_bg.swift`: Swift script that generates the DMG background image (light
+  gradient with arrow and "Drag to install" label) using AppKit.
+- `macos/StealthMessage/StealthMessage/Assets.xcassets/AppIcon.appiconset/`: app icon PNG set
+  (16×16, 32×32, 64×64, 128×128, 256×256, 512×512, 1024×1024).
+
 ### Changed
 - `cli/stealth_cli/__main__.py`: updated built-in manual (`--manual`) to use the installed
   command `stealth-cli` in all examples instead of the development invocation
