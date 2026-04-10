@@ -12,6 +12,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Changed
 - `ARCHITECTURE.md`: macOS status updated from "In development" to "Functional" (monorepo tree and section header).
 - `README.md`: CLI installation updated — `pip install stealth-message-cli` as primary method; all command examples updated from `python -m stealth_cli` to `stealth-cli`.
+- `README.md`: macOS section restructured — user installation (DMG), first-launch Gatekeeper bypass instructions (macOS 13/14 and right-click method), security notes, build-from-source section separated.
 - `CHANGELOG.md`: historical `[Unreleased]` content moved to `[cli 0.1.7 / macos 1.0.0] — 2026-04`; `[Future]` section added for pending Linux and Windows implementations.
 
 ---

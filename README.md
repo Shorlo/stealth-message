@@ -165,29 +165,57 @@ stealth-cli --manual
 
 ## macOS client (`macos/`)
 
-Native SwiftUI app for macOS 13 (Ventura) and later.
+Native SwiftUI app for macOS 13 (Ventura) and later. Current version: **1.0.0**.
 
 ### Requirements
 
-- macOS 13.0+
-- Xcode 15+
-- Swift 5.9+
+- macOS 13.0 (Ventura) or later
+- Apple Silicon or Intel
 
-The project uses [ObjectivePGP](https://github.com/krzyzanowskim/ObjectivePGP)
-(v0.99.4) via Swift Package Manager for all PGP operations, and
-`URLSessionWebSocketTask` for WebSocket — no external networking dependencies.
-Private keys are stored in the Keychain
-(`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`), never on disk.
+### Installation
 
-### Opening the project
+1. Download **StealthMessage-1.0.dmg** from the
+   [latest macOS release](https://github.com/Shorlo/stealth-message/releases/tag/macos/v1.0.0).
+2. Open the DMG and drag **StealthMessage** into your Applications folder.
+3. Eject the DMG.
+
+### First launch — Gatekeeper
+
+The app is not yet signed with an Apple Developer ID certificate, so macOS will
+block it on first open with a security warning. To bypass it:
+
+**macOS 13 / 14 (Ventura / Sonoma):**
+1. Try to open the app — macOS shows the warning and moves it to Trash or blocks it.
+2. Open **System Settings → Privacy & Security**.
+3. Scroll down to the Security section — you will see *"StealthMessage was blocked…"*.
+4. Click **Open Anyway** and confirm.
+
+**Alternative (any version):**
+Right-click (or Control-click) the app in Finder and choose **Open**.
+A dialog will ask you to confirm — click **Open**.
+
+This is a one-time step. After the first confirmation macOS remembers the choice.
+
+### Notes on security
+
+Despite the Gatekeeper warning, the app is safe:
+- All PGP keys are generated locally and stored in your Keychain.
+- No data is sent to any server — the app connects only to the peer you specify.
+- Source code is fully auditable in this repository.
+
+### Build from source
+
+Requires Xcode 15+ and Swift 5.9+.
 
 ```bash
 open macos/StealthMessage/StealthMessage.xcodeproj
 ```
 
-Xcode resolves the SPM dependency automatically on first open.
+Xcode resolves the [ObjectivePGP](https://github.com/krzyzanowskim/ObjectivePGP)
+(v0.99.4) SPM dependency automatically on first open. Private keys are stored in
+the Keychain (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`), never on disk.
 
-### Current status
+### Implementation status
 
 | Component | Status |
 |-----------|--------|
