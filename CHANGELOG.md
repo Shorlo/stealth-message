@@ -9,6 +9,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- GitHub Release `cli/v0.1.7` published with release notes and link to PyPI package.
+- GitHub Release `macos/v1.0.0` published with `StealthMessage-1.0.dmg` attached and first-launch instructions.
+
 ### Changed
 - `ARCHITECTURE.md`: macOS status updated from "In development" to "Functional" (monorepo tree and section header).
 - `README.md`: CLI installation updated — `pip install stealth-message-cli` as primary method; all command examples updated from `python -m stealth_cli` to `stealth-cli`.
