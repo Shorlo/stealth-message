@@ -9,6 +9,20 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- `macos/make_dmg.sh`: added ad-hoc code signing step (`codesign --deep --force --sign -`) after the Xcode build and before DMG packaging. Ensures the app bundle can run on other machines without a paid Apple Developer account. Rebuilt `StealthMessage-1.0.dmg` distributed via syberiancode.com now includes the signed app.
+
+---
+
+## [macos/v1.0.0 — build 2] — 2026-04
+
+### Changed
+- `macos/make_dmg.sh`: added ad-hoc code signing — see above.
+
+---
+
+## [cli/v0.1.7 / macos/v1.0.0] — 2026-04
+
 ### Added
 - GitHub Release `cli/v0.1.7` published with release notes and link to PyPI package.
 - GitHub Release `macos/v1.0.0` published with `StealthMessage-1.0.dmg` attached and first-launch instructions.

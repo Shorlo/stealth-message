@@ -36,6 +36,12 @@ if [ ! -d "$APP_PATH" ]; then
 fi
 echo "✓ Build succeeded: $APP_PATH"
 
+# ── 1b. Ad-hoc code sign ─────────────────────────────────────────────────────
+# Required so macOS allows the app to run on other machines (no paid dev account).
+echo "→ Signing app (ad-hoc)…"
+codesign --deep --force --sign - "$APP_PATH"
+echo "✓ Signed"
+
 # ── 2. Generate background image ─────────────────────────────────────────────
 BG_DIR="$DIST_DIR/dmg-bg"
 BG_IMG="$BG_DIR/background.png"
