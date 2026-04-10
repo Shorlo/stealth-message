@@ -51,18 +51,20 @@ each other regardless of platform.
 ### Installation
 
 ```bash
-cd cli
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e .
+pip install stealth-message-cli
 ```
 
-Requires Python 3.10 or later.
+**Windows (PowerShell):**
+```powershell
+powershell -c "irm https://syberiancode.com/stealth-message/install.ps1 | iex"
+```
+
+Requires Python 3.10 or later. Published on [PyPI](https://pypi.org/project/stealth-message-cli/) as `stealth-message-cli 0.1.7`.
 
 ### First run
 
 ```bash
-python -m stealth_cli
+stealth-cli
 ```
 
 A setup wizard starts automatically and asks for:
@@ -79,16 +81,16 @@ so they can verify your identity.
 **Host** — one participant starts the server:
 
 ```bash
-python -m stealth_cli --host               # port 8765 (default)
-python -m stealth_cli --host 9000          # custom port
-python -m stealth_cli --host --rooms a,b,c # pre-create named rooms
+stealth-cli --host               # port 8765 (default)
+stealth-cli --host 9000          # custom port
+stealth-cli --host --rooms a,b,c # pre-create named rooms
 ```
 
 **Join** — everyone else connects to the host:
 
 ```bash
-python -m stealth_cli --join ALICE_IP:8765
-python -m stealth_cli --join ALICE_IP:8765 --room a
+stealth-cli --join ALICE_IP:8765
+stealth-cli --join ALICE_IP:8765 --room a
 # ws:// prefix is added automatically if omitted
 ```
 
@@ -116,8 +118,8 @@ Room names can contain any characters, including spaces (up to 64 chars).
 On the command line, quote names that contain spaces:
 
 ```bash
-python -m stealth_cli --host --rooms "sala 1","sala 2"
-python -m stealth_cli --join ALICE_IP:8765 --room "sala 1"
+stealth-cli --host --rooms "sala 1","sala 2"
+stealth-cli --join ALICE_IP:8765 --room "sala 1"
 ```
 
 Inside the chat, quotes are not needed — everything after the command is
@@ -147,7 +149,7 @@ the room name:
 ### Identity reset
 
 ```bash
-python -m stealth_cli --reset
+stealth-cli --reset
 ```
 
 Wipes the stored key pair and config and immediately runs the setup wizard
@@ -156,7 +158,7 @@ so you can choose a new alias and generate a fresh key in one step.
 ### Full manual
 
 ```bash
-python -m stealth_cli --manual
+stealth-cli --manual
 ```
 
 ---

@@ -36,7 +36,7 @@ stealth-message/
 ├── docs/
 │   └── protocol.md       ← SOURCE OF TRUTH for the protocol (v0.8)
 ├── cli/                  ← Terminal client (Python 3.10+)  ← REFERENCE IMPLEMENTATION
-├── macos/                ← Native macOS app (Swift 5.9+ / SwiftUI)  ← in development
+├── macos/                ← Native macOS app (Swift 5.9+ / SwiftUI)  ← functional
 ├── windows/              ← Native Windows 11 app (C# 12 / WinUI 3)  ← pending
 └── linux/                ← Native Linux app, GTK4 (Python 3.10+)    ← pending
 ```
@@ -49,7 +49,7 @@ in both.
 
 ## Implementation status
 
-### CLI (`cli/`) — Reference implementation — Functional
+### CLI (`cli/`) — Reference implementation — Functional — v0.1.7
 
 | Module | File | Status |
 |--------|------|--------|
@@ -92,7 +92,7 @@ Executable flags:
 | `--manual` | Full user manual |
 | `--debug` | Verbose debug logging |
 
-### macOS (`macos/`) — In development
+### macOS (`macos/`) — Functional — v1.0.0
 
 | Module | File | Status |
 |--------|------|--------|

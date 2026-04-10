@@ -9,6 +9,15 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- `ARCHITECTURE.md`: macOS status updated from "In development" to "Functional" (monorepo tree and section header).
+- `README.md`: CLI installation updated — `pip install stealth-message-cli` as primary method; all command examples updated from `python -m stealth_cli` to `stealth-cli`.
+- `CHANGELOG.md`: historical `[Unreleased]` content moved to `[cli 0.1.7 / macos 1.0.0] — 2026-04`; `[Future]` section added for pending Linux and Windows implementations.
+
+---
+
+## [cli 0.1.7 / macos 1.0.0] — 2026-04
+
 ### Added
 - `macos/make_dmg.sh`: shell script that builds the Release app with `xcodebuild` and packages
   it as a distributable DMG (with custom background, icon layout, and Applications symlink).
@@ -382,12 +391,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.1.0] — to be published
-
-> First public release when the CLI and at least one native app are functional.
+## [Future]
 
 ### Planned
-- Functional CLI (Python): crypto, network, terminal UI.
-- macOS app (Swift + SwiftUI): complete and integrated with Keychain.
 - Linux app (Python + GTK4): complete and integrated with libsecret.
 - Windows app (C# + WinUI 3): complete and integrated with DPAPI.
