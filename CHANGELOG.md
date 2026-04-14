@@ -9,6 +9,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `windows/`: initial Windows client implementation (C# 12 / WinUI 3).
+  - Solution scaffolding: `StealthMessage.slnx`, three projects (`StealthMessage`, `StealthMessage.Core`, `StealthMessage.Tests`).
+  - `StealthMessage.Core` (net10.0): `Crypto/` layer — `PgpManager`, `KeyStore`, `CryptoException` types. RSA-4096 key generation, sign-then-encrypt, decrypt-then-verify, DPAPI private key storage, fingerprint formatting.
+  - `StealthMessage.Tests` (net10.0, no WinUI): 16 tests covering all crypto and key-store operations — all passing.
+  - NuGet dependencies: `PgpCore 7.0.0`, `Microsoft.Extensions.Logging`, `System.Security.Cryptography.ProtectedData`.
+
 ### Changed
 - `macos/make_dmg.sh`: added ad-hoc code signing step (`codesign --deep --force --sign -`) after the Xcode build and before DMG packaging. Ensures the app bundle can run on other machines without a paid Apple Developer account. Rebuilt `StealthMessage-1.0.dmg` distributed via syberiancode.com now includes the signed app.
 
