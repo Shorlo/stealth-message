@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="StealthMessage.Views.UnlockView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <StackPanel MaxWidth="400" Margin="40,60,40,40"
+                HorizontalAlignment="Center" Spacing="16">
+
+        <!-- Title -->
+        <FontIcon Glyph="&#xE8D4;" FontSize="48"
+                  HorizontalAlignment="Center"
+                  Foreground="{ThemeResource SystemColorHighlightBrush}" />
+        <TextBlock Text="StealthMessage"
+                   Style="{ThemeResource TitleLargeTextBlockStyle}"
+                   HorizontalAlignment="Center" />
+        <TextBlock Text="Enter your passphrase to unlock your identity."
+                   Style="{ThemeResource BodyTextBlockStyle}"
+                   HorizontalAlignment="Center"
+                   Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+
+        <!-- Passphrase -->
+        <PasswordBox x:Name="PassBox"
+                     Header="Passphrase"
+                     PlaceholderText="Enter passphrase"
+                     PasswordChanged="PassBox_PasswordChanged"
+                     KeyDown="PassBox_KeyDown" />
+
+        <!-- Error -->
+        <InfoBar IsOpen="{Binding ErrorMessage, Converter={StaticResource NotEmptyToBoolConverter}}"
+                 Severity="Error"
+                 Message="{Binding ErrorMessage}" />
+
+        <!-- Unlock -->
+        <Button Content="Unlock"
+                Style="{ThemeResource AccentButtonStyle}"
+                HorizontalAlignment="Stretch"
+                Command="{Binding UnlockCommand}" />
+
+        <!-- Progress -->
+        <ProgressRing IsActive="{Binding IsUnlocking}"
+                      HorizontalAlignment="Center" />
+
+        <!-- Reset identity link -->
+        <HyperlinkButton Content="Reset identity…"
+                         HorizontalAlignment="Center"
+                         Command="{Binding ResetIdentityCommand}"
+                         Click="ResetIdentity_Click" />
+
+    </StackPanel>
+</UserControl>

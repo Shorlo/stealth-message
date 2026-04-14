@@ -14,6 +14,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   - Solution scaffolding: `StealthMessage.slnx`, three projects (`StealthMessage`, `StealthMessage.Core`, `StealthMessage.Tests`).
   - `StealthMessage.Core` (net10.0): `Crypto/` layer — `PgpManager`, `KeyStore`, `CryptoException` types. RSA-4096 key generation, sign-then-encrypt, decrypt-then-verify, DPAPI private key storage, fingerprint formatting.
   - `StealthMessage.Tests` (net10.0, no WinUI): 16 tests covering all crypto and key-store operations — all passing.
+  - Phase 3 — ViewModels: AppViewModel (state machine), SetupViewModel, UnlockViewModel, HubViewModel, HostViewModel, JoinViewModel. RelayCommand / SyncRelayCommand / RelayCommand&lt;T&gt;.
+  - Phase 4 — Views (XAML / Fluent Design): SetupView, UnlockView, HubView, HostView, JoinView. App.xaml with value converters (BoolToVisibility, InverseBoolToVisibility, NotEmptyToBool, CountToVisibility, RunningStatus, NotNullToVisibility). App.xaml.cs with Microsoft.Extensions.DependencyInjection container. MainWindow.xaml.cs with screen-switch via PropertyChanged.
+  - WinUI app compiles clean (`dotnet build -r win-x64`, 0 errors, 0 warnings).
   - NuGet dependencies: `PgpCore 7.0.0`, `Microsoft.Extensions.Logging`, `System.Security.Cryptography.ProtectedData`.
 
 ### Changed

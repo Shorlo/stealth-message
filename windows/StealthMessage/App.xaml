@@ -3,14 +3,22 @@
     x:Class="StealthMessage.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:StealthMessage.Converters"
     xmlns:local="using:StealthMessage">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
-                <!-- Other merged dictionaries here -->
             </ResourceDictionary.MergedDictionaries>
-            <!-- Other app resources here -->
+
+            <!-- Value converters used throughout the app -->
+            <converters:BoolToVisibilityConverter       x:Key="BoolToVisibilityConverter" />
+            <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+            <converters:BoolNegationConverter            x:Key="BoolNegationConverter" />
+            <converters:NotEmptyToBoolConverter          x:Key="NotEmptyToBoolConverter" />
+            <converters:CountToVisibilityConverter       x:Key="CountToVisibilityConverter" />
+            <converters:RunningStatusConverter           x:Key="RunningStatusConverter" />
+            <converters:NotNullToVisibilityConverter      x:Key="NotNullToVisibilityConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
