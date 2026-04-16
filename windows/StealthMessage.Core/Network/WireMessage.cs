@@ -100,7 +100,7 @@ public static class WireFrameSerializer
             "server_hello" => new ServerHelloFrame(
                 root.GetString("version"),
                 root.GetString("alias"),
-                root.GetString("pub_key")),
+                root.GetString("pubkey")),
             "message" => new MessageFrame(
                 root.GetString("id"),
                 root.GetString("payload"),
@@ -146,12 +146,12 @@ public static class WireFrameSerializer
                 root.GetString("version"),
                 root.GetString("room"),
                 root.GetString("alias"),
-                root.GetString("pub_key"));
+                root.GetString("pubkey"));
         }
         return new ServerHelloFrame(
             root.GetString("version"),
             root.GetString("alias"),
-            root.GetString("pub_key"));
+            root.GetString("pubkey"));
     }
 
     /// <summary>Serializes a <see cref="WireFrame"/> to its JSON wire representation.</summary>
@@ -160,9 +160,9 @@ public static class WireFrameSerializer
         return frame switch
         {
             HelloFrame f => Obj(("type", "hello"), ("version", f.Version), ("room", f.Room),
-                                ("alias", f.Alias), ("pub_key", f.PubKey)),
+                                ("alias", f.Alias), ("pubkey", f.PubKey)),
             ServerHelloFrame f => Obj(("type", "hello"), ("version", f.Version),
-                                      ("alias", f.Alias), ("pub_key", f.PubKey)),
+                                      ("alias", f.Alias), ("pubkey", f.PubKey)),
             MessageFrame f     => SerializeMessage(f),
             PeerListFrame f    => SerializePeerList(f),
             RoomListFrame f    => SerializeRoomList(f),

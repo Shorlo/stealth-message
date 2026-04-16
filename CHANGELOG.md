@@ -9,6 +9,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- `windows/StealthMessage.Core`: protocol compliance — `pubkey` JSON field name (was `pub_key`; caused 1011 internal error on all incoming connections) and protocol version string `"1"` (was `"0.8"`). Affected `WireMessage.cs` (parse + serialize), `StealthServer.cs`, and `StealthClient.cs`. Updated `WireMessageTests.cs` to match.
+
 ### Added
 - `windows/`: initial Windows client implementation (C# 12 / WinUI 3).
   - Solution scaffolding: `StealthMessage.slnx`, three projects (`StealthMessage`, `StealthMessage.Core`, `StealthMessage.Tests`).

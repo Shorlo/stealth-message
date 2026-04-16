@@ -1,8 +1,5 @@
 {
   "profiles": {
-    "StealthMessage (Package)": {
-      "commandName": "MsixPackage"
-    },
     "StealthMessage (Unpackaged)": {
       "commandName": "Project"
     }

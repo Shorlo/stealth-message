@@ -1,5 +1,0 @@
-<Solution>
-  <Project Path="StealthMessage.Core/StealthMessage.Core.csproj" />
-  <Project Path="StealthMessage.Tests/StealthMessage.Tests.csproj" />
-  <Project Path="StealthMessage/StealthMessage.csproj" />
-</Solution>

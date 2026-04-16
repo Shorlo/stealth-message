@@ -11,7 +11,7 @@ public sealed class WireMessageTests
     [Fact]
     public void Parse_HelloFrame_ClientHello()
     {
-        string json = """{"type":"hello","version":"1","room":"general","alias":"Alice","pub_key":"ABC"}""";
+        string json = """{"type":"hello","version":"1","room":"general","alias":"Alice","pubkey":"ABC"}""";
         var frame = WireFrameSerializer.Parse(json) as HelloFrame;
 
         Assert.NotNull(frame);
@@ -24,7 +24,7 @@ public sealed class WireMessageTests
     [Fact]
     public void Parse_ServerHelloFrame()
     {
-        string json = """{"type":"hello","version":"1","alias":"Server","pub_key":"XYZ"}""";
+        string json = """{"type":"hello","version":"1","alias":"Server","pubkey":"XYZ"}""";
         var frame = WireFrameSerializer.Parse(json) as ServerHelloFrame;
 
         Assert.NotNull(frame);

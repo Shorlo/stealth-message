@@ -58,7 +58,7 @@ public sealed class StealthClient : IAsyncDisposable
         await _ws.ConnectAsync(serverUri, cancellationToken);
         _logger.LogInformation("WebSocket connected to {Uri}.", serverUri);
 
-        var hello = new HelloFrame("0.8", roomId, alias, armoredPub);
+        var hello = new HelloFrame("1", roomId, alias, armoredPub);
         await SendRawAsync(WireFrameSerializer.Serialize(hello), cancellationToken);
 
         // Wait for server-hello or error (10 s timeout)

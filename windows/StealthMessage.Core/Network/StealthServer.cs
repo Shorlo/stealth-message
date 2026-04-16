@@ -1,25 +1,28 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
 
 namespace StealthMessage.Network;
 
 /// <summary>
-/// WebSocket server based on <see cref="HttpListener"/>.
+/// WebSocket server based on <see cref="TcpListener"/>.
 /// Handles room management, peer approval, and message relay.
+/// Does not require administrator privileges (unlike HttpListener with http://+).
 /// </summary>
 public sealed class StealthServer : IAsyncDisposable
 {
     // Timeouts (protocol.md)
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ApprovalTimeout  = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan PingInterval     = TimeSpan.FromSeconds(30);
 
-    private const string ProtocolVersion = "0.8";
+    private const string ProtocolVersion = "1";
+    private const string WsGuid         = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
     private readonly ILogger<StealthServer> _logger;
-    private readonly HttpListener _listener = new();
+    private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptTask;
 
@@ -40,11 +43,11 @@ public sealed class StealthServer : IAsyncDisposable
 
     private sealed class ConnectedPeer
     {
-        public required string          Alias       { get; init; }
-        public required string          Fingerprint { get; init; }
-        public required string          ArmoredPub  { get; init; }
-        public required WebSocket       WebSocket   { get; init; }
-        public required SemaphoreSlim   SendLock    { get; init; }
+        public required string        Alias       { get; init; }
+        public required string        Fingerprint { get; init; }
+        public required string        ArmoredPub  { get; init; }
+        public required WebSocket     WebSocket   { get; init; }
+        public required SemaphoreSlim SendLock    { get; init; }
     }
 
     // ---------------------------------------------------------------------------
@@ -77,7 +80,8 @@ public sealed class StealthServer : IAsyncDisposable
     // ---------------------------------------------------------------------------
 
     /// <summary>
-    /// Starts the HTTP listener on the specified port and begins accepting WebSocket connections.
+    /// Starts the TCP listener on the specified port and begins accepting WebSocket connections.
+    /// No administrator privileges required.
     /// </summary>
     public void Start(
         int    port,
@@ -96,7 +100,7 @@ public sealed class StealthServer : IAsyncDisposable
                 _rooms[name] = new Room { Kind = kind };
         }
 
-        _listener.Prefixes.Add($"http://+:{port}/");
+        _listener = new TcpListener(IPAddress.Any, port);
         _listener.Start();
         _logger.LogInformation("Server listening on port {Port}.", port);
 
@@ -107,7 +111,7 @@ public sealed class StealthServer : IAsyncDisposable
     public async Task StopAsync()
     {
         _cts?.Cancel();
-        _listener.Stop();
+        _listener?.Stop();
         if (_acceptTask is not null) try { await _acceptTask; } catch { }
     }
 
@@ -154,31 +158,123 @@ public sealed class StealthServer : IAsyncDisposable
     {
         while (!ct.IsCancellationRequested)
         {
-            HttpListenerContext ctx;
-            try { ctx = await _listener.GetContextAsync(); }
-            catch (HttpListenerException) { break; }
-            catch (ObjectDisposedException) { break; }
+            TcpClient client;
+            try { client = await _listener!.AcceptTcpClientAsync(ct); }
+            catch (OperationCanceledException) { break; }
+            catch (SocketException) { break; }
 
-            if (!ctx.Request.IsWebSocketRequest) { ctx.Response.Close(); continue; }
-
-            _ = Task.Run(() => HandleConnectionAsync(ctx, ct), ct);
+            _ = Task.Run(() => HandleTcpClientAsync(client, ct), ct);
         }
+    }
+
+    // ---------------------------------------------------------------------------
+    // TCP → WebSocket upgrade
+    // ---------------------------------------------------------------------------
+
+    private async Task HandleTcpClientAsync(TcpClient client, CancellationToken ct)
+    {
+        client.NoDelay = true;
+        using (client)
+        {
+            NetworkStream stream = client.GetStream();
+            try
+            {
+                Dictionary<string, string> headers = await ReadHttpHeadersAsync(stream, ct);
+
+                if (!headers.TryGetValue("Sec-WebSocket-Key", out string? wsKey))
+                {
+                    byte[] reject = "HTTP/1.1 400 Bad Request\r\n\r\n"u8.ToArray();
+                    await stream.WriteAsync(reject, ct);
+                    return;
+                }
+
+                await SendWebSocketUpgradeAsync(stream, wsKey, ct);
+
+                using WebSocket ws = WebSocket.CreateFromStream(stream,
+                    new WebSocketCreationOptions
+                    {
+                        IsServer             = true,
+                        SubProtocol          = null,
+                        KeepAliveInterval    = Timeout.InfiniteTimeSpan,
+                    });
+
+                await HandleConnectionAsync(ws, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error during TCP/WebSocket handshake.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reads HTTP request headers one byte at a time to avoid buffering into WebSocket data.
+    /// </summary>
+    private static async Task<Dictionary<string, string>> ReadHttpHeadersAsync(
+        Stream stream, CancellationToken ct)
+    {
+        var headers    = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var lineBuffer = new List<byte>(256);
+        var buf        = new byte[1];
+        bool firstLine = true;
+
+        while (true)
+        {
+            lineBuffer.Clear();
+
+            // Read until \r\n
+            while (true)
+            {
+                await stream.ReadExactlyAsync(buf, ct);
+                if (buf[0] == '\n' && lineBuffer.Count > 0 && lineBuffer[^1] == '\r')
+                {
+                    lineBuffer.RemoveAt(lineBuffer.Count - 1);
+                    break;
+                }
+                lineBuffer.Add(buf[0]);
+            }
+
+            if (lineBuffer.Count == 0) break; // Empty line = end of headers
+
+            if (firstLine) { firstLine = false; continue; } // Skip "GET / HTTP/1.1"
+
+            string line  = Encoding.UTF8.GetString(lineBuffer.ToArray());
+            int    colon = line.IndexOf(':');
+            if (colon > 0)
+                headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
+        }
+
+        return headers;
+    }
+
+    /// <summary>
+    /// Sends the HTTP 101 Switching Protocols response required to upgrade to WebSocket.
+    /// </summary>
+    private static async Task SendWebSocketUpgradeAsync(
+        Stream stream, string wsKey, CancellationToken ct)
+    {
+        string accept = Convert.ToBase64String(
+            SHA1.HashData(Encoding.UTF8.GetBytes(wsKey + WsGuid)));
+
+        string response =
+            "HTTP/1.1 101 Switching Protocols\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            $"Sec-WebSocket-Accept: {accept}\r\n" +
+            "\r\n";
+
+        await stream.WriteAsync(Encoding.UTF8.GetBytes(response), ct);
+        await stream.FlushAsync(ct);
     }
 
     // ---------------------------------------------------------------------------
     // Per-connection handler
     // ---------------------------------------------------------------------------
 
-    private async Task HandleConnectionAsync(HttpListenerContext ctx, CancellationToken ct)
+    private async Task HandleConnectionAsync(WebSocket ws, CancellationToken ct)
     {
-        HttpListenerWebSocketContext wsCtx;
-        try { wsCtx = await ctx.AcceptWebSocketAsync(null); }
-        catch (Exception ex) { _logger.LogWarning(ex, "WebSocket upgrade failed."); return; }
-
-        WebSocket ws = wsCtx.WebSocket;
         try
         {
-            // Read first frame to detect listrooms vs hello
             string firstJson;
             try
             {
@@ -221,10 +317,6 @@ public sealed class StealthServer : IAsyncDisposable
             try { await CloseAsync(ws, WebSocketCloseStatus.InternalServerError, "Internal error"); }
             catch { }
         }
-        finally
-        {
-            ws.Dispose();
-        }
     }
 
     // ---------------------------------------------------------------------------
@@ -243,8 +335,7 @@ public sealed class StealthServer : IAsyncDisposable
                 Available: kv.Value.Kind == "1to1" ? kv.Value.Peers.Count == 0 : true))
             .ToList();
         }
-        var frame = new RoomsInfoFrame(rooms);
-        await SendRawAsync(ws, WireFrameSerializer.Serialize(frame), ct);
+        await SendRawAsync(ws, WireFrameSerializer.Serialize(new RoomsInfoFrame(rooms)), ct);
         await CloseAsync(ws, WebSocketCloseStatus.NormalClosure, "done");
     }
 
@@ -304,29 +395,26 @@ public sealed class StealthServer : IAsyncDisposable
         }
 
         // Send server hello
-        var serverHello = new ServerHelloFrame(ProtocolVersion, HostAlias, ArmoredPub);
-        await SendRawAsync(ws, WireFrameSerializer.Serialize(serverHello), ct);
+        await SendRawAsync(ws, WireFrameSerializer.Serialize(
+            new ServerHelloFrame(ProtocolVersion, HostAlias, ArmoredPub)), ct);
 
         // Register peer
-        var sendLock = new SemaphoreSlim(1, 1);
-        var peer     = new ConnectedPeer
+        var peer = new ConnectedPeer
         {
             Alias       = hello.Alias,
             Fingerprint = ExtractFingerprint(hello.PubKey),
             ArmoredPub  = hello.PubKey,
             WebSocket   = ws,
-            SendLock    = sendLock,
+            SendLock    = new SemaphoreSlim(1, 1),
         };
 
         lock (_lock) { room.Peers.Add(peer); }
         OnPeerConnected?.Invoke(hello.Alias, peer.Fingerprint);
         _logger.LogInformation("Peer '{Alias}' joined room '{Room}'.", hello.Alias, hello.Room);
 
-        // Send room list (group only) and peer list
         await SendRoomListAsync(ct);
         await SendPeerListToRoomAsync(hello.Room, ct);
 
-        // Receive loop for this peer
         try { await PeerReceiveLoopAsync(peer, hello.Room, ct); }
         finally
         {
@@ -402,9 +490,8 @@ public sealed class StealthServer : IAsyncDisposable
         List<ConnectedPeer> peers;
         lock (_lock) { peers = room.Peers.ToList(); }
 
-        var peerList = new PeerListFrame(
-            peers.Select(p => new PeerInfo(p.Alias, p.Fingerprint)).ToList());
-        string json = WireFrameSerializer.Serialize(peerList);
+        string json = WireFrameSerializer.Serialize(new PeerListFrame(
+            peers.Select(p => new PeerInfo(p.Alias, p.Fingerprint)).ToList()));
 
         foreach (var peer in peers)
             await SendAsync(peer, json);
@@ -420,11 +507,9 @@ public sealed class StealthServer : IAsyncDisposable
                 .Select(kv => kv.Key)
                 .ToList();
         }
-        // Only relevant for group rooms; 1:1 rooms are not announced
         if (groupRooms.Count == 0) return;
 
-        var frame = new RoomListFrame(groupRooms);
-        string json = WireFrameSerializer.Serialize(frame);
+        string json = WireFrameSerializer.Serialize(new RoomListFrame(groupRooms));
 
         List<ConnectedPeer> all;
         lock (_lock) { all = _rooms.Values.SelectMany(r => r.Peers).ToList(); }
@@ -493,18 +578,8 @@ public sealed class StealthServer : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Returns the first 40 characters of the pub key as a stub fingerprint.
-    /// Real fingerprint extraction requires PgpManager; injecting it here would
-    /// create a circular dependency — the UI layer should pass the pre-computed
-    /// fingerprint instead.
-    /// </summary>
     private static string ExtractFingerprint(string armoredPub)
-    {
-        // Strip armor header/footer, take first 40 chars of body as identifier.
-        // The real fingerprint is computed by PgpManager and stored in the ViewModel.
-        return armoredPub.Length >= 40 ? armoredPub[..40] : armoredPub;
-    }
+        => armoredPub.Length >= 40 ? armoredPub[..40] : armoredPub;
 
     public async ValueTask DisposeAsync()
     {
