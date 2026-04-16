@@ -16,6 +16,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `windows/StealthMessage.Core/Network/StealthClient.cs`: server hello pubkey is now decoded and stored as `PeerArmoredPubkey`/`PeerAlias` after the handshake, making it available for encryption and decryption by the caller.
 - `windows/StealthMessage/ViewModels/HostViewModel.cs`: `OnMessage` now decrypts incoming messages instead of showing `<encrypted>`; `SendMessageAsync` now encrypts per-peer and sends via server; `OnPeerConnected` stores each peer's armoredPub.
 - `windows/StealthMessage/ViewModels/JoinViewModel.cs`: callbacks set after handshake so `PeerArmoredPubkey` is available; `OnMessage` uses host pubkey for signature verification; `SendMessageAsync` encrypts for the host's pubkey instead of own pubkey.
+- `windows/StealthMessage/ViewModels/HostViewModel.cs`: fixed lambda parameter name collision (`_` used as both a discard and a named parameter in `OnPeerConnected`; renamed to `_fp`) causing CS0029 compile error.
 
 ### Added
 - `windows/`: initial Windows client implementation (C# 12 / WinUI 3).

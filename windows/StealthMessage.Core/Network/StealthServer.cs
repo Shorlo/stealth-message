@@ -53,23 +53,16 @@ public sealed class StealthServer : IAsyncDisposable
     // Callbacks for UI
     // ---------------------------------------------------------------------------
 
-    /// <summary>
-    /// Called when a peer wants to join a group room.
-    /// Return true to approve, false to deny.
-    /// </summary>
+    /// <summary>Called when a peer wants to join a group room. Return true to approve.</summary>
     public Func<string, string, Task<bool>>? OnJoinRequest { get; set; }
 
-    /// <summary>Called when a peer connects. Parameters: alias, fingerprint, armoredPub.</summary>
+    /// <summary>Called when a peer connects. Parameters: alias, fingerprint, armoredPubKey.</summary>
     public Action<string, string, string>? OnPeerConnected { get; set; }
 
     /// <summary>Called when a peer disconnects. Parameter: alias.</summary>
     public Action<string>? OnPeerDisconnected { get; set; }
 
-    /// <summary>
-    /// Called when a message arrives. Parameters: payload, alias, peerArmoredPub.
-    /// The payload is the raw base64url-encoded encrypted PGP message.
-    /// The caller is responsible for decryption using peerArmoredPub to verify the signature.
-    /// </summary>
+    /// <summary>Called when a message arrives. Parameters: payload, senderAlias, peerArmoredPub.</summary>
     public Func<string, string, string, Task>? OnMessage { get; set; }
 
     public string HostAlias   { get; private set; } = string.Empty;
@@ -145,7 +138,7 @@ public sealed class StealthServer : IAsyncDisposable
         await SendAsync(peer, WireFrameSerializer.Serialize(new MoveFrame(targetRoom)));
     }
 
-    /// <summary>Sends a pre-built <see cref="MessageFrame"/> to a specific peer.</summary>
+    /// <summary>Sends a pre-built message frame to a specific connected peer.</summary>
     public async Task SendToAsync(string alias, MessageFrame frame)
     {
         ConnectedPeer? peer = FindPeer(alias);
@@ -153,16 +146,11 @@ public sealed class StealthServer : IAsyncDisposable
         await SendAsync(peer, WireFrameSerializer.Serialize(frame));
     }
 
-    /// <summary>Returns the raw ASCII-armored public key of a connected peer, or null.</summary>
-    public string? GetPeerArmoredPub(string alias)
+    /// <summary>Returns the decoded ASCII-armored public key of a connected peer, or null.</summary>
+    public string? GetPeerPublicKey(string alias)
     {
-        lock (_lock)
-        {
-            return _rooms.Values
-                .SelectMany(r => r.Peers)
-                .FirstOrDefault(p => string.Equals(p.Alias, alias, StringComparison.Ordinal))
-                ?.ArmoredPub;
-        }
+        ConnectedPeer? peer = FindPeer(alias);
+        return peer?.ArmoredPub;
     }
 
     // ---------------------------------------------------------------------------
@@ -326,7 +314,7 @@ public sealed class StealthServer : IAsyncDisposable
     }
 
     // ---------------------------------------------------------------------------
-    // listrooms
+    // listrooms — no auth, no handshake
     // ---------------------------------------------------------------------------
 
     private async Task HandleListRoomsAsync(WebSocket ws, CancellationToken ct)
@@ -336,8 +324,7 @@ public sealed class StealthServer : IAsyncDisposable
         {
             rooms = _rooms.Select(kv => new RoomInfo(
                 Id:        kv.Key,
-                // Wire format uses "1:1" / "group" per protocol §1
-                Kind:      kv.Value.Kind == "1to1" ? "1:1" : kv.Value.Kind,
+                Kind:      kv.Value.Kind == "1to1" ? "1:1" : kv.Value.Kind, // protocol §1: "1:1"
                 Peers:     kv.Value.Peers.Count,
                 Available: kv.Value.Kind == "1to1" ? kv.Value.Peers.Count == 0 : true))
             .ToList();
@@ -399,28 +386,28 @@ public sealed class StealthServer : IAsyncDisposable
             }
         }
 
-        // Send server hello — pubkey must be base64url(armored_bytes) per protocol §2
-        string encodedPub = EncodeBase64Url(Encoding.UTF8.GetBytes(ArmoredPub));
-        await SendRawAsync(ws, WireFrameSerializer.Serialize(
-            new ServerHelloFrame(ProtocolVersion, HostAlias, encodedPub)), ct);
-
-        // Decode the base64url pubkey the client sent (correct padding, not naive "==")
+        // Decode client's pubkey — base64url(armored_bytes) per protocol §2
         string peerArmored;
         try
         {
-            peerArmored = Encoding.UTF8.GetString(DecodeBase64Url(hello.PubKey));
+            peerArmored = Encoding.UTF8.GetString(Base64UrlDecode(hello.PubKey));
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Invalid pubkey encoding from peer '{Alias}'.", hello.Alias);
+            _logger.LogWarning(ex, "Invalid pubkey encoding from '{Alias}'.", hello.Alias);
             await SendErrorAsync(ws, ProtocolException.Malformed, "Invalid pubkey encoding.");
             return;
         }
 
+        // Send server hello — encode own pubkey as base64url(armored_bytes) per protocol §2
+        string encodedPub = Base64UrlEncode(Encoding.UTF8.GetBytes(ArmoredPub));
+        await SendRawAsync(ws, WireFrameSerializer.Serialize(
+            new ServerHelloFrame(ProtocolVersion, HostAlias, encodedPub)), ct);
+
         var peer = new ConnectedPeer
         {
             Alias       = hello.Alias,
-            Fingerprint = ExtractFingerprint(hello.PubKey),
+            Fingerprint = hello.Alias, // real FP computed by HostViewModel via PgpManager
             ArmoredPub  = peerArmored,
             WebSocket   = ws,
             SendLock    = new SemaphoreSlim(1, 1),
@@ -499,10 +486,6 @@ public sealed class StealthServer : IAsyncDisposable
             await SendAsync(target, relayed);
     }
 
-    /// <summary>
-    /// Sends each peer in the room a list of the OTHER peers currently in that room
-    /// (protocol §3: "Each peer receives the list of all other peers — not itself").
-    /// </summary>
     private async Task SendPeerListToRoomAsync(string roomName, CancellationToken ct)
     {
         Room? room;
@@ -512,15 +495,11 @@ public sealed class StealthServer : IAsyncDisposable
         List<ConnectedPeer> peers;
         lock (_lock) { peers = room.Peers.ToList(); }
 
+        string json = WireFrameSerializer.Serialize(new PeerListFrame(
+            peers.Select(p => new PeerInfo(p.Alias, p.Fingerprint)).ToList()));
+
         foreach (var peer in peers)
-        {
-            var others = peers
-                .Where(p => p != peer)
-                .Select(p => new PeerInfo(p.Alias, p.Fingerprint))
-                .ToList();
-            string json = WireFrameSerializer.Serialize(new PeerListFrame(others));
             await SendAsync(peer, json);
-        }
     }
 
     private async Task SendRoomListAsync(CancellationToken ct)
@@ -604,14 +583,14 @@ public sealed class StealthServer : IAsyncDisposable
         }
     }
 
-    private static string ExtractFingerprint(string armoredPub)
-        => armoredPub.Length >= 40 ? armoredPub[..40] : armoredPub;
-
     // ---------------------------------------------------------------------------
-    // Base64 URL-safe helpers (RFC 4648 §5, no padding) — mirrors PgpManager
+    // Base64 URL-safe helpers — RFC 4648 §5, no padding
     // ---------------------------------------------------------------------------
 
-    private static byte[] DecodeBase64Url(string encoded)
+    private static string Base64UrlEncode(byte[] data)
+        => Convert.ToBase64String(data).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+
+    private static byte[] Base64UrlDecode(string encoded)
     {
         string s = encoded.Replace('-', '+').Replace('_', '/');
         switch (s.Length % 4)
@@ -621,12 +600,6 @@ public sealed class StealthServer : IAsyncDisposable
         }
         return Convert.FromBase64String(s);
     }
-
-    private static string EncodeBase64Url(byte[] data)
-        => Convert.ToBase64String(data)
-                  .Replace('+', '-')
-                  .Replace('/', '_')
-                  .TrimEnd('=');
 
     public async ValueTask DisposeAsync()
     {

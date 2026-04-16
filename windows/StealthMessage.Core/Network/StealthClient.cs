@@ -18,31 +18,26 @@ public sealed class StealthClient : IAsyncDisposable
     private static readonly TimeSpan PongTimeout       = TimeSpan.FromSeconds(10);
 
     private readonly ILogger<StealthClient> _logger;
-    private readonly ClientWebSocket        _ws    = new();
+    private readonly ClientWebSocket        _ws       = new();
     private readonly SemaphoreSlim          _sendLock = new(1, 1);
     private CancellationTokenSource?        _cts;
     private Task?                           _receiveTask;
     private Task?                           _pingTask;
 
-    // ---------------------------------------------------------------------------
-    // Peer identity (populated after handshake)
-    // ---------------------------------------------------------------------------
-
-    /// <summary>Raw ASCII-armored public key of the server/host — available after Connect.</summary>
+    // Peer identity — populated after handshake
+    public string? PeerAlias         { get; private set; }
     public string? PeerArmoredPubkey { get; private set; }
-
-    /// <summary>Display alias of the server/host — available after Connect.</summary>
-    public string? PeerAlias { get; private set; }
+    public string? PeerFingerprint   { get; private set; }
 
     // ---------------------------------------------------------------------------
     // Public callbacks
     // ---------------------------------------------------------------------------
-    public Func<MessageFrame, Task>?              OnMessage      { get; set; }
-    public Func<PeerListFrame, Task>?             OnPeerList     { get; set; }
-    public Func<RoomListFrame, Task>?             OnRoomList     { get; set; }
-    public Func<KickFrame, Task>?                 OnKicked       { get; set; }
-    public Func<MoveFrame, Task>?                 OnMoved        { get; set; }
-    public Func<Task>?                            OnDisconnected { get; set; }
+    public Func<MessageFrame, Task>? OnMessage      { get; set; }
+    public Func<PeerListFrame, Task>? OnPeerList    { get; set; }
+    public Func<RoomListFrame, Task>? OnRoomList    { get; set; }
+    public Func<KickFrame, Task>?     OnKicked      { get; set; }
+    public Func<MoveFrame, Task>?     OnMoved       { get; set; }
+    public Func<Task>?                OnDisconnected { get; set; }
 
     public StealthClient(ILogger<StealthClient> logger)
     {
@@ -69,8 +64,7 @@ public sealed class StealthClient : IAsyncDisposable
         _logger.LogInformation("WebSocket connected to {Uri}.", serverUri);
 
         // pubkey must be base64url(armored_bytes) per protocol §2
-        string encodedPub = Convert.ToBase64String(Encoding.UTF8.GetBytes(armoredPub))
-            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        string encodedPub = Base64UrlEncode(Encoding.UTF8.GetBytes(armoredPub));
         var hello = new HelloFrame("1", roomId, alias, encodedPub);
         await SendRawAsync(WireFrameSerializer.Serialize(hello), cancellationToken);
 
@@ -82,17 +76,18 @@ public sealed class StealthClient : IAsyncDisposable
         switch (response)
         {
             case ServerHelloFrame serverHello:
-                // Decode the host's base64url pubkey and store it for encryption/decryption
+                // Decode server's pubkey (base64url → armored string)
                 try
                 {
-                    PeerArmoredPubkey = Encoding.UTF8.GetString(DecodeBase64Url(serverHello.PubKey));
                     PeerAlias         = serverHello.Alias;
+                    PeerArmoredPubkey = Encoding.UTF8.GetString(Base64UrlDecode(serverHello.PubKey));
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Invalid pubkey encoding in server hello.");
+                    throw new ProtocolException(ProtocolException.Malformed,
+                        $"Invalid pubkey encoding in server hello: {ex.Message}");
                 }
-                _logger.LogInformation("Handshake complete (direct join). PeerAlias={Alias}", serverHello.Alias);
+                _logger.LogInformation("Handshake complete (direct join). Peer: {Alias}.", PeerAlias);
                 break;
 
             case PendingFrame:
@@ -104,16 +99,15 @@ public sealed class StealthClient : IAsyncDisposable
                     switch (approval)
                     {
                         case ApprovedFrame:
-                            // Group rooms: server sends server-hello after approval
-                            var sh = await ReceiveFrameAsync(cancellationToken);
-                            if (sh is ServerHelloFrame shf)
+                            var serverHello2 = await ReceiveFrameAsync(cancellationToken);
+                            if (serverHello2 is ServerHelloFrame sh2)
                             {
                                 try
                                 {
-                                    PeerArmoredPubkey = Encoding.UTF8.GetString(DecodeBase64Url(shf.PubKey));
-                                    PeerAlias         = shf.Alias;
+                                    PeerAlias         = sh2.Alias;
+                                    PeerArmoredPubkey = Encoding.UTF8.GetString(Base64UrlDecode(sh2.PubKey));
                                 }
-                                catch { /* non-fatal — crypto ops will fail later */ }
+                                catch { /* best-effort — server hello after approval may not repeat pubkey */ }
                             }
                             _logger.LogInformation("Host approved.");
                             break;
@@ -181,10 +175,6 @@ public sealed class StealthClient : IAsyncDisposable
     // Room discovery — no auth required
     // ---------------------------------------------------------------------------
 
-    /// <summary>
-    /// Opens a temporary WebSocket, sends <c>listrooms</c>, receives <c>roomsinfo</c>,
-    /// and closes. Does not authenticate.
-    /// </summary>
     public static async Task<IReadOnlyList<RoomInfo>> QueryRoomsAsync(
         Uri serverUri,
         ILogger<StealthClient> logger,
@@ -198,7 +188,9 @@ public sealed class StealthClient : IAsyncDisposable
         string json = await ReceiveOneFrameAsync(ws, ct);
         var frame   = WireFrameSerializer.Parse(json);
 
-        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
+        // Server closes after roomsinfo — attempt graceful close, ignore errors
+        try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None); }
+        catch { }
 
         return frame is RoomsInfoFrame ri
             ? ri.Rooms
@@ -265,8 +257,6 @@ public sealed class StealthClient : IAsyncDisposable
                 await Task.Delay(PingInterval, ct);
                 await SendRawAsync(WireFrameSerializer.Serialize(new PingFrame()), ct);
                 _logger.LogDebug("Ping sent.");
-                // Pong is handled in the receive loop — we don't block here.
-                // If the connection is dead, the receive loop will detect it.
             }
         }
         catch (OperationCanceledException) { }
@@ -326,7 +316,6 @@ public sealed class StealthClient : IAsyncDisposable
     {
         var buffer = new ArraySegment<byte>(new byte[64 * 1024]);
         using var ms = new System.IO.MemoryStream();
-
         WebSocketReceiveResult result;
         do
         {
@@ -336,15 +325,17 @@ public sealed class StealthClient : IAsyncDisposable
             ms.Write(buffer.Array!, buffer.Offset, result.Count);
         }
         while (!result.EndOfMessage);
-
         return Encoding.UTF8.GetString(ms.ToArray());
     }
 
     // ---------------------------------------------------------------------------
-    // Base64 URL-safe helpers (RFC 4648 §5) — same logic as StealthServer / PgpManager
+    // Base64 URL-safe helpers — RFC 4648 §5, no padding
     // ---------------------------------------------------------------------------
 
-    private static byte[] DecodeBase64Url(string encoded)
+    private static string Base64UrlEncode(byte[] data)
+        => Convert.ToBase64String(data).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+
+    private static byte[] Base64UrlDecode(string encoded)
     {
         string s = encoded.Replace('-', '+').Replace('_', '/');
         switch (s.Length % 4)

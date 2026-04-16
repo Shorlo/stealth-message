@@ -21,7 +21,6 @@ public sealed class PendingPeerViewModel
     public string Alias       { get; init; } = string.Empty;
     public string Fingerprint { get; init; } = string.Empty;
 
-    // Completion source resolved when host approves or denies
     internal TaskCompletionSource<bool> Tcs { get; } = new();
 }
 
@@ -32,15 +31,15 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
     private readonly StealthServer   _server;
     private readonly DispatcherQueue _dispatcher;
 
+    // alias → decoded armored pubkey (populated on peer connect)
+    private readonly Dictionary<string, string> _peerPubKeys = new(StringComparer.Ordinal);
+
     private string _port         = "8765";
     private string _newRoomName  = string.Empty;
     private string _newRoomKind  = "1to1";
     private string _messageInput = string.Empty;
     private string _errorMessage = string.Empty;
     private bool   _isRunning;
-
-    // alias → raw ASCII-armored public key (populated in OnPeerConnected)
-    private readonly Dictionary<string, string> _peerPubKeys = new(StringComparer.Ordinal);
 
     public HostViewModel(PgpManager pgp, AppViewModel app)
     {
@@ -49,43 +48,52 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _server     = new StealthServer(NullLogger<StealthServer>.Instance);
 
-        _server.OnPeerConnected    = (alias, fp, armoredPub) =>
+        _server.OnPeerConnected = (alias, _fp, armoredPub) =>
         {
-            _peerPubKeys[alias] = armoredPub;
+            string fp = string.Empty;
+            try { fp = _pgp.GetFingerprint(armoredPub); } catch { }
+            lock (_peerPubKeys) { _peerPubKeys[alias] = armoredPub; }
             _ = _dispatcher.TryEnqueue(() =>
                 ConnectedPeers.Add(new PeerViewModel { Alias = alias, Fingerprint = fp }));
         };
+
         _server.OnPeerDisconnected = alias =>
         {
-            _peerPubKeys.Remove(alias);
+            lock (_peerPubKeys) { _peerPubKeys.Remove(alias); }
             _ = _dispatcher.TryEnqueue(() =>
             {
                 var p = ConnectedPeers.FirstOrDefault(x => x.Alias == alias);
                 if (p is not null) ConnectedPeers.Remove(p);
             });
         };
+
         _server.OnMessage = async (payload, alias, peerArmoredPub) =>
         {
             var (armoredPriv, _, _, passphrase) = _app.GetCredentials();
             try
             {
-                string plaintext = await _pgp.DecryptAsync(payload, armoredPriv, peerArmoredPub, passphrase);
+                string plaintext = await _pgp.DecryptAsync(
+                    payload, armoredPriv, peerArmoredPub, passphrase);
                 _dispatcher.TryEnqueue(() => Messages.Add($"[{alias}] {plaintext}"));
             }
             catch (SignatureInvalidException)
             {
-                _dispatcher.TryEnqueue(() => Messages.Add($"[!] Message from {alias} had invalid signature — discarded."));
+                _dispatcher.TryEnqueue(() =>
+                    Messages.Add($"[!] Message from {alias} discarded — invalid signature."));
             }
             catch (Exception ex)
             {
-                _dispatcher.TryEnqueue(() => Messages.Add($"[{alias}]: <decryption failed: {ex.Message}>"));
+                _dispatcher.TryEnqueue(() =>
+                    Messages.Add($"[{alias}]: <decryption failed: {ex.Message}>"));
             }
         };
-        _server.OnJoinRequest      = HandleJoinRequestAsync;
+
+        _server.OnJoinRequest = HandleJoinRequestAsync;
 
         StartServerCommand  = new RelayCommand(StartServerAsync,  () => !_isRunning);
         StopServerCommand   = new RelayCommand(StopServerAsync,   () =>  _isRunning);
-        SendMessageCommand  = new RelayCommand(SendMessageAsync,  () =>  _isRunning && !string.IsNullOrWhiteSpace(_messageInput));
+        SendMessageCommand  = new RelayCommand(SendMessageAsync,
+            () => _isRunning && !string.IsNullOrWhiteSpace(_messageInput));
         AddRoomCommand      = new SyncRelayCommand(AddRoom);
         ApproveCommand      = new RelayCommand<PendingPeerViewModel>(ApproveAsync);
         DenyCommand         = new RelayCommand<PendingPeerViewModel>(DenyAsync);
@@ -127,8 +135,11 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
     public string MessageInput
     {
         get => _messageInput;
-        set { _messageInput = value; OnPropertyChanged();
-              ((RelayCommand)SendMessageCommand).NotifyCanExecuteChanged(); }
+        set
+        {
+            _messageInput = value; OnPropertyChanged();
+            ((RelayCommand)SendMessageCommand).NotifyCanExecuteChanged();
+        }
     }
 
     public string ErrorMessage
@@ -189,36 +200,48 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         await _server.StopAsync();
         IsRunning = false;
+        lock (_peerPubKeys) { _peerPubKeys.Clear(); }
         Messages.Add("[System] Server stopped.");
     }
 
     // ---------------------------------------------------------------------------
-    // Message send
+    // Message send — encrypt individually for each connected peer
     // ---------------------------------------------------------------------------
 
     private async Task SendMessageAsync()
     {
         if (string.IsNullOrWhiteSpace(_messageInput)) return;
+
         var (armoredPriv, _, alias, passphrase) = _app.GetCredentials();
         string text = _messageInput;
 
-        // Encrypt individually for each connected peer and send via server
-        foreach (var peer in ConnectedPeers.ToList())
+        List<(string peerAlias, string armoredPub)> peers;
+        lock (_peerPubKeys)
         {
-            if (!_peerPubKeys.TryGetValue(peer.Alias, out string? peerPub)) continue;
+            peers = _peerPubKeys.Select(kv => (kv.Key, kv.Value)).ToList();
+        }
+
+        if (peers.Count == 0)
+        {
+            _dispatcher.TryEnqueue(() => Messages.Add("[System] No peers connected."));
+            MessageInput = string.Empty;
+            return;
+        }
+
+        foreach (var (peerAlias, peerPub) in peers)
+        {
             try
             {
-                string encrypted = await _pgp.EncryptAsync(text, peerPub, armoredPriv, passphrase);
-                var frame = new MessageFrame(
+                string payload = await _pgp.EncryptAsync(text, peerPub, armoredPriv, passphrase);
+                await _server.SendToAsync(peerAlias, new MessageFrame(
                     Id:        Guid.NewGuid().ToString(),
-                    Payload:   encrypted,
-                    Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                await _server.SendToAsync(peer.Alias, frame);
+                    Payload:   payload,
+                    Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
             }
             catch (Exception ex)
             {
                 _dispatcher.TryEnqueue(() =>
-                    Messages.Add($"[!] Failed to send to {peer.Alias}: {ex.Message}"));
+                    Messages.Add($"[!] Failed to send to {peerAlias}: {ex.Message}"));
             }
         }
 
@@ -254,7 +277,6 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
         var tcs     = new TaskCompletionSource<bool>();
         var pending = new PendingPeerViewModel { Alias = alias, Fingerprint = fingerprint };
 
-        // Forward TCS so Approve/Deny commands can resolve it
         _pendingTasks[alias] = tcs;
         _dispatcher.TryEnqueue(() => PendingPeers.Add(pending));
 
