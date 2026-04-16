@@ -142,97 +142,107 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
         var (armoredPriv, armoredPub, alias, passphrase) = _app.GetCredentials();
         _client = new StealthClient(NullLogger<StealthClient>.Instance);
 
-        _client.OnMessage = async frame =>
-        {
-            try
-            {
-                string plaintext = await _pgp.DecryptAsync(
-                    frame.Payload, armoredPriv, PeerFingerprint.Length > 0 ? armoredPub : armoredPub,
-                    passphrase);
-                string sender    = frame.Sender ?? PeerAlias;
-                _dispatcher.TryEnqueue(() => Messages.Add($"[{sender}] {plaintext}"));
-            }
-            catch (SignatureInvalidException)
-            {
-                _dispatcher.TryEnqueue(() => Messages.Add("[!] Message discarded — invalid signature."));
-            }
-        };
-
-        _client.OnPeerList = async frame =>
-        {
-            _dispatcher.TryEnqueue(() =>
-            {
-                Peers.Clear();
-                foreach (var p in frame.Peers)
-                    Peers.Add(new PeerViewModel { Alias = p.Alias, Fingerprint = p.Fingerprint });
-                if (frame.Peers.Count == 1)
-                {
-                    PeerAlias       = frame.Peers[0].Alias;
-                    PeerFingerprint = frame.Peers[0].Fingerprint;
-                }
-            });
-            await Task.CompletedTask;
-        };
-
-        _client.OnKicked = async frame =>
-        {
-            _dispatcher.TryEnqueue(() =>
-            {
-                Messages.Add($"[System] You were kicked: {frame.Reason}");
-                IsConnected = false;
-                IsPending   = false;
-            });
-            await Task.CompletedTask;
-        };
-
-        _client.OnMoved = async frame =>
-        {
-            // Disconnect and reconnect to the new room (pre-approved)
-            string newRoom = frame.Room;
-            _dispatcher.TryEnqueue(() => Messages.Add($"[System] Moved to room: {newRoom}"));
-            var oldClient  = _client;
-            _client = null;
-            if (oldClient is not null)
-            {
-                oldClient.OnDisconnected = null;
-                await oldClient.DisposeAsync();
-            }
-            RoomId = newRoom;
-            await ConnectAsync();
-        };
-
-        _client.OnDisconnected = async () =>
-        {
-            _dispatcher.TryEnqueue(() =>
-            {
-                IsConnected = false;
-                IsPending   = false;
-                Messages.Add("[System] Disconnected.");
-            });
-            await Task.CompletedTask;
-        };
-
         IsPending = true;
         try
         {
             await _client.ConnectAsync(uri, _roomId, alias, armoredPub);
+
+            // PeerArmoredPubkey and PeerAlias are populated after the handshake completes
+            string? peerPub   = _client.PeerArmoredPubkey;
+            string  hostAlias = _client.PeerAlias ?? "Host";
+            if (!string.IsNullOrEmpty(hostAlias)) PeerAlias = hostAlias;
+
+            // Set up callbacks now — receive loop is running but we haven't missed anything yet
+            _client.OnMessage = async frame =>
+            {
+                try
+                {
+                    // Use the host's armoredPub (from server hello) to verify the signature
+                    string senderPub = peerPub ?? armoredPub;
+                    string plaintext = await _pgp.DecryptAsync(frame.Payload, armoredPriv, senderPub, passphrase);
+                    string sender    = frame.Sender ?? PeerAlias;
+                    _dispatcher.TryEnqueue(() => Messages.Add($"[{sender}] {plaintext}"));
+                }
+                catch (SignatureInvalidException)
+                {
+                    _dispatcher.TryEnqueue(() => Messages.Add("[!] Message discarded — invalid signature."));
+                }
+                catch (Exception ex)
+                {
+                    _dispatcher.TryEnqueue(() => Messages.Add($"[!] Decryption failed: {ex.Message}"));
+                }
+            };
+
+            _client.OnPeerList = async frame =>
+            {
+                _dispatcher.TryEnqueue(() =>
+                {
+                    Peers.Clear();
+                    foreach (var p in frame.Peers)
+                        Peers.Add(new PeerViewModel { Alias = p.Alias, Fingerprint = p.Fingerprint });
+                    if (frame.Peers.Count == 1)
+                    {
+                        PeerAlias       = frame.Peers[0].Alias;
+                        PeerFingerprint = frame.Peers[0].Fingerprint;
+                    }
+                });
+                await Task.CompletedTask;
+            };
+
+            _client.OnKicked = async frame =>
+            {
+                _dispatcher.TryEnqueue(() =>
+                {
+                    Messages.Add($"[System] You were kicked: {frame.Reason}");
+                    IsConnected = false;
+                    IsPending   = false;
+                });
+                await Task.CompletedTask;
+            };
+
+            _client.OnMoved = async frame =>
+            {
+                string newRoom = frame.Room;
+                _dispatcher.TryEnqueue(() => Messages.Add($"[System] Moved to room: {newRoom}"));
+                var oldClient = _client;
+                _client = null;
+                if (oldClient is not null)
+                {
+                    oldClient.OnDisconnected = null;
+                    await oldClient.DisposeAsync();
+                }
+                RoomId = newRoom;
+                await ConnectAsync();
+            };
+
+            _client.OnDisconnected = async () =>
+            {
+                _dispatcher.TryEnqueue(() =>
+                {
+                    IsConnected = false;
+                    IsPending   = false;
+                    Messages.Add("[System] Disconnected.");
+                });
+                await Task.CompletedTask;
+            };
+
             IsPending   = false;
             IsConnected = true;
-            Messages.Add("[System] Connected.");
+            Messages.Add($"[System] Connected. Host: {hostAlias}");
         }
         catch (ProtocolException ex)
         {
             ErrorMessage = $"Protocol error {ex.Code}: {ex.Message}";
             IsPending    = false;
-            await _client.DisposeAsync();
-            _client = null;
+            var c1 = _client; _client = null;
+            if (c1 is not null) await c1.DisposeAsync();
         }
         catch (Exception ex)
         {
             ErrorMessage = $"Connection failed: {ex.Message}";
             IsPending    = false;
-            await _client.DisposeAsync();
-            _client = null;
+            var c2 = _client; _client = null;
+            if (c2 is not null) await c2.DisposeAsync();
         }
     }
 
@@ -258,20 +268,31 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         if (_client is null || string.IsNullOrWhiteSpace(_messageInput)) return;
 
-        var (armoredPriv, armoredPub, alias, passphrase) = _app.GetCredentials();
-        // For 1:1 rooms, encrypt for the single peer.
-        // For group rooms with multiple peers, a real implementation encrypts per-peer.
-        // Here we encrypt for the server's pubkey (host) as a simplification —
-        // the full multi-recipient flow is handled in a future iteration.
-        string encrypted = await _pgp.EncryptAsync(
-            _messageInput, armoredPub, armoredPriv, passphrase);
+        var (armoredPriv, _, alias, passphrase) = _app.GetCredentials();
 
-        await _client.SendMessageAsync(encrypted);
-        _dispatcher.TryEnqueue(() =>
+        // Encrypt for the host's public key (received during handshake)
+        string? recipientPub = _client.PeerArmoredPubkey;
+        if (recipientPub is null)
         {
-            Messages.Add($"[{alias}] {_messageInput}");
-            MessageInput = string.Empty;
-        });
+            ErrorMessage = "No host public key — cannot encrypt. Reconnect and try again.";
+            return;
+        }
+
+        string text = _messageInput;
+        try
+        {
+            string encrypted = await _pgp.EncryptAsync(text, recipientPub, armoredPriv, passphrase);
+            await _client.SendMessageAsync(encrypted);
+            _dispatcher.TryEnqueue(() =>
+            {
+                Messages.Add($"[{alias}] {text}");
+                MessageInput = string.Empty;
+            });
+        }
+        catch (Exception ex)
+        {
+            _dispatcher.TryEnqueue(() => ErrorMessage = $"Send failed: {ex.Message}");
+        }
     }
 
     // ---------------------------------------------------------------------------

@@ -25,6 +25,16 @@ public sealed class StealthClient : IAsyncDisposable
     private Task?                           _pingTask;
 
     // ---------------------------------------------------------------------------
+    // Peer identity (populated after handshake)
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Raw ASCII-armored public key of the server/host — available after Connect.</summary>
+    public string? PeerArmoredPubkey { get; private set; }
+
+    /// <summary>Display alias of the server/host — available after Connect.</summary>
+    public string? PeerAlias { get; private set; }
+
+    // ---------------------------------------------------------------------------
     // Public callbacks
     // ---------------------------------------------------------------------------
     public Func<MessageFrame, Task>?              OnMessage      { get; set; }
@@ -71,8 +81,18 @@ public sealed class StealthClient : IAsyncDisposable
 
         switch (response)
         {
-            case ServerHelloFrame:
-                _logger.LogInformation("Handshake complete (direct join).");
+            case ServerHelloFrame serverHello:
+                // Decode the host's base64url pubkey and store it for encryption/decryption
+                try
+                {
+                    PeerArmoredPubkey = Encoding.UTF8.GetString(DecodeBase64Url(serverHello.PubKey));
+                    PeerAlias         = serverHello.Alias;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Invalid pubkey encoding in server hello.");
+                }
+                _logger.LogInformation("Handshake complete (direct join). PeerAlias={Alias}", serverHello.Alias);
                 break;
 
             case PendingFrame:
@@ -84,8 +104,17 @@ public sealed class StealthClient : IAsyncDisposable
                     switch (approval)
                     {
                         case ApprovedFrame:
-                            // server should follow with server-hello; consume it
-                            _ = await ReceiveFrameAsync(cancellationToken);
+                            // Group rooms: server sends server-hello after approval
+                            var sh = await ReceiveFrameAsync(cancellationToken);
+                            if (sh is ServerHelloFrame shf)
+                            {
+                                try
+                                {
+                                    PeerArmoredPubkey = Encoding.UTF8.GetString(DecodeBase64Url(shf.PubKey));
+                                    PeerAlias         = shf.Alias;
+                                }
+                                catch { /* non-fatal — crypto ops will fail later */ }
+                            }
                             _logger.LogInformation("Host approved.");
                             break;
                         case ErrorFrame err:
@@ -309,5 +338,20 @@ public sealed class StealthClient : IAsyncDisposable
         while (!result.EndOfMessage);
 
         return Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    // ---------------------------------------------------------------------------
+    // Base64 URL-safe helpers (RFC 4648 §5) — same logic as StealthServer / PgpManager
+    // ---------------------------------------------------------------------------
+
+    private static byte[] DecodeBase64Url(string encoded)
+    {
+        string s = encoded.Replace('-', '+').Replace('_', '/');
+        switch (s.Length % 4)
+        {
+            case 2: s += "=="; break;
+            case 3: s += "=";  break;
+        }
+        return Convert.FromBase64String(s);
     }
 }

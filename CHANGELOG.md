@@ -12,6 +12,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Fixed
 - `windows/StealthMessage.Core`: protocol compliance — `pubkey` JSON field name (was `pub_key`; caused 1011 internal error on all incoming connections) and protocol version string `"1"` (was `"0.8"`). Affected `WireMessage.cs` (parse + serialize), `StealthServer.cs`, and `StealthClient.cs`. Updated `WireMessageTests.cs` to match.
 - `windows/StealthMessage.Core`: `pubkey` wire encoding — server hello was sending the raw ASCII-armored key instead of `base64url(armored_bytes)` as required by protocol §2. Fixed in `StealthServer.cs` (encode on send, decode on receive) and `StealthClient.cs` (encode on send).
+- `windows/StealthMessage.Core/Network/StealthServer.cs`: base64url decode used naive `+ "=="` padding causing `FormatException` when key bytes are divisible by 3 (length % 4 == 0), producing 1011 internal error on every connection. Added correct padding helper (`switch (length % 4)`). Also: `SendPeerListToRoomAsync` now sends each peer a list of OTHER peers only (protocol §3); `HandleListRoomsAsync` now emits `"1:1"` in the wire kind field (protocol §1); `OnPeerConnected` and `OnMessage` callbacks now carry the peer's armoredPub; added `SendToAsync` and `GetPeerArmoredPub` host-send methods.
+- `windows/StealthMessage.Core/Network/StealthClient.cs`: server hello pubkey is now decoded and stored as `PeerArmoredPubkey`/`PeerAlias` after the handshake, making it available for encryption and decryption by the caller.
+- `windows/StealthMessage/ViewModels/HostViewModel.cs`: `OnMessage` now decrypts incoming messages instead of showing `<encrypted>`; `SendMessageAsync` now encrypts per-peer and sends via server; `OnPeerConnected` stores each peer's armoredPub.
+- `windows/StealthMessage/ViewModels/JoinViewModel.cs`: callbacks set after handshake so `PeerArmoredPubkey` is available; `OnMessage` uses host pubkey for signature verification; `SendMessageAsync` encrypts for the host's pubkey instead of own pubkey.
 
 ### Added
 - `windows/`: initial Windows client implementation (C# 12 / WinUI 3).

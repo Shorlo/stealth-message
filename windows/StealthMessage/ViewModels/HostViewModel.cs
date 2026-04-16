@@ -39,6 +39,9 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
     private string _errorMessage = string.Empty;
     private bool   _isRunning;
 
+    // alias → raw ASCII-armored public key (populated in OnPeerConnected)
+    private readonly Dictionary<string, string> _peerPubKeys = new(StringComparer.Ordinal);
+
     public HostViewModel(PgpManager pgp, AppViewModel app)
     {
         _pgp        = pgp;
@@ -46,17 +49,37 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _server     = new StealthServer(NullLogger<StealthServer>.Instance);
 
-        _server.OnPeerConnected    = (alias, fp) => { _ = _dispatcher.TryEnqueue(() =>
-            ConnectedPeers.Add(new PeerViewModel { Alias = alias, Fingerprint = fp })); };
-        _server.OnPeerDisconnected = alias => { _ = _dispatcher.TryEnqueue(() =>
+        _server.OnPeerConnected    = (alias, fp, armoredPub) =>
         {
-            var p = ConnectedPeers.FirstOrDefault(x => x.Alias == alias);
-            if (p is not null) ConnectedPeers.Remove(p);
-        }); };
-        _server.OnMessage = async (payload, alias) =>
+            _peerPubKeys[alias] = armoredPub;
+            _ = _dispatcher.TryEnqueue(() =>
+                ConnectedPeers.Add(new PeerViewModel { Alias = alias, Fingerprint = fp }));
+        };
+        _server.OnPeerDisconnected = alias =>
         {
-            _ = _dispatcher.TryEnqueue(() => Messages.Add($"[{alias}]: <encrypted>"));
-            await Task.CompletedTask;
+            _peerPubKeys.Remove(alias);
+            _ = _dispatcher.TryEnqueue(() =>
+            {
+                var p = ConnectedPeers.FirstOrDefault(x => x.Alias == alias);
+                if (p is not null) ConnectedPeers.Remove(p);
+            });
+        };
+        _server.OnMessage = async (payload, alias, peerArmoredPub) =>
+        {
+            var (armoredPriv, _, _, passphrase) = _app.GetCredentials();
+            try
+            {
+                string plaintext = await _pgp.DecryptAsync(payload, armoredPriv, peerArmoredPub, passphrase);
+                _dispatcher.TryEnqueue(() => Messages.Add($"[{alias}] {plaintext}"));
+            }
+            catch (SignatureInvalidException)
+            {
+                _dispatcher.TryEnqueue(() => Messages.Add($"[!] Message from {alias} had invalid signature — discarded."));
+            }
+            catch (Exception ex)
+            {
+                _dispatcher.TryEnqueue(() => Messages.Add($"[{alias}]: <decryption failed: {ex.Message}>"));
+            }
         };
         _server.OnJoinRequest      = HandleJoinRequestAsync;
 
@@ -176,13 +199,34 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
     private async Task SendMessageAsync()
     {
         if (string.IsNullOrWhiteSpace(_messageInput)) return;
-        var (armoredPriv, armoredPub, alias, passphrase) = _app.GetCredentials();
+        var (armoredPriv, _, alias, passphrase) = _app.GetCredentials();
+        string text = _messageInput;
 
-        // In host mode, messages are encrypted for each peer individually.
-        // For now, add to local log — full per-peer encryption is done in HostView code-behind.
-        Messages.Add($"[{alias}] {_messageInput}");
-        MessageInput = string.Empty;
-        await Task.CompletedTask;
+        // Encrypt individually for each connected peer and send via server
+        foreach (var peer in ConnectedPeers.ToList())
+        {
+            if (!_peerPubKeys.TryGetValue(peer.Alias, out string? peerPub)) continue;
+            try
+            {
+                string encrypted = await _pgp.EncryptAsync(text, peerPub, armoredPriv, passphrase);
+                var frame = new MessageFrame(
+                    Id:        Guid.NewGuid().ToString(),
+                    Payload:   encrypted,
+                    Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                await _server.SendToAsync(peer.Alias, frame);
+            }
+            catch (Exception ex)
+            {
+                _dispatcher.TryEnqueue(() =>
+                    Messages.Add($"[!] Failed to send to {peer.Alias}: {ex.Message}"));
+            }
+        }
+
+        _dispatcher.TryEnqueue(() =>
+        {
+            Messages.Add($"[{alias}] {text}");
+            MessageInput = string.Empty;
+        });
     }
 
     // ---------------------------------------------------------------------------
