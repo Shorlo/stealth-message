@@ -394,16 +394,21 @@ public sealed class StealthServer : IAsyncDisposable
             }
         }
 
-        // Send server hello
+        // Send server hello — pubkey must be base64url(armored_bytes) per protocol §2
+        string encodedPub = Convert.ToBase64String(Encoding.UTF8.GetBytes(ArmoredPub))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
         await SendRawAsync(ws, WireFrameSerializer.Serialize(
-            new ServerHelloFrame(ProtocolVersion, HostAlias, ArmoredPub)), ct);
+            new ServerHelloFrame(ProtocolVersion, HostAlias, encodedPub)), ct);
 
-        // Register peer
+        // Register peer — decode the base64url pubkey the client sent
+        string peerArmored = Encoding.UTF8.GetString(
+            Convert.FromBase64String(
+                hello.PubKey.Replace('-', '+').Replace('_', '/') + "=="));
         var peer = new ConnectedPeer
         {
             Alias       = hello.Alias,
-            Fingerprint = ExtractFingerprint(hello.PubKey),
-            ArmoredPub  = hello.PubKey,
+            Fingerprint = ExtractFingerprint(peerArmored),
+            ArmoredPub  = peerArmored,
             WebSocket   = ws,
             SendLock    = new SemaphoreSlim(1, 1),
         };

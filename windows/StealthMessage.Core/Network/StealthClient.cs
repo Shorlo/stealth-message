@@ -58,7 +58,10 @@ public sealed class StealthClient : IAsyncDisposable
         await _ws.ConnectAsync(serverUri, cancellationToken);
         _logger.LogInformation("WebSocket connected to {Uri}.", serverUri);
 
-        var hello = new HelloFrame("1", roomId, alias, armoredPub);
+        // pubkey must be base64url(armored_bytes) per protocol §2
+        string encodedPub = Convert.ToBase64String(Encoding.UTF8.GetBytes(armoredPub))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        var hello = new HelloFrame("1", roomId, alias, encodedPub);
         await SendRawAsync(WireFrameSerializer.Serialize(hello), cancellationToken);
 
         // Wait for server-hello or error (10 s timeout)

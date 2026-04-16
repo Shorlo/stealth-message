@@ -11,6 +11,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - `windows/StealthMessage.Core`: protocol compliance — `pubkey` JSON field name (was `pub_key`; caused 1011 internal error on all incoming connections) and protocol version string `"1"` (was `"0.8"`). Affected `WireMessage.cs` (parse + serialize), `StealthServer.cs`, and `StealthClient.cs`. Updated `WireMessageTests.cs` to match.
+- `windows/StealthMessage.Core`: `pubkey` wire encoding — server hello was sending the raw ASCII-armored key instead of `base64url(armored_bytes)` as required by protocol §2. Fixed in `StealthServer.cs` (encode on send, decode on receive) and `StealthClient.cs` (encode on send).
 
 ### Added
 - `windows/`: initial Windows client implementation (C# 12 / WinUI 3).
