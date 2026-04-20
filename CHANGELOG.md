@@ -17,6 +17,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `windows/StealthMessage/ViewModels/HostViewModel.cs`: `OnMessage` now decrypts incoming messages instead of showing `<encrypted>`; `SendMessageAsync` now encrypts per-peer and sends via server; `OnPeerConnected` stores each peer's armoredPub.
 - `windows/StealthMessage/ViewModels/JoinViewModel.cs`: callbacks set after handshake so `PeerArmoredPubkey` is available; `OnMessage` uses host pubkey for signature verification; `SendMessageAsync` encrypts for the host's pubkey instead of own pubkey.
 - `windows/StealthMessage/ViewModels/HostViewModel.cs`: fixed lambda parameter name collision (`_` used as both a discard and a named parameter in `OnPeerConnected`; renamed to `_fp`) causing CS0029 compile error.
+- `windows/StealthMessage.Core/Crypto/PgpManager.cs`: replaced PgpCore key generation with direct BouncyCastle call that omits the `KeyExpirationTime` subpacket. PgpCore's `GenerateKeyAsync` added a `KeyExpirationTime=0` subpacket which pgpy (Python CLI) interprets as "already expired at creation time", causing it to discard all messages signed by the Windows host.
+- `windows/StealthMessage/Views/HostView.xaml`, `JoinView.xaml`: added `UpdateSourceTrigger=PropertyChanged` to message TextBox bindings — the WinUI 3 default is `LostFocus`, which prevented the Send button from becoming active while typing.
 
 ### Added
 - `windows/`: initial Windows client implementation (C# 12 / WinUI 3).

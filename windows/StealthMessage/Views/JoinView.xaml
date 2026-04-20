@@ -122,7 +122,7 @@
                 </Grid.ColumnDefinitions>
                 <TextBox Grid.Column="0"
                          PlaceholderText="Type a message…"
-                         Text="{Binding MessageInput, Mode=TwoWay}"
+                         Text="{Binding MessageInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                          KeyDown="MessageBox_KeyDown" />
                 <Button Grid.Column="1" Content="Send"
                         Style="{ThemeResource AccentButtonStyle}"

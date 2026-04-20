@@ -4,6 +4,11 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using Org.BouncyCastle.Bcpg;
 using Org.BouncyCastle.Bcpg.OpenPgp;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.Generators;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Math;
+using Org.BouncyCastle.Security;
 using PgpCore;
 
 namespace StealthMessage.Crypto;
@@ -28,6 +33,9 @@ public sealed class PgpManager
 
     /// <summary>
     /// Generates an RSA-4096 keypair. Alias is embedded in the key UID.
+    /// Uses BouncyCastle directly to omit the KeyExpirationTime subpacket — a key with
+    /// no expiry subpacket is "never expires" per RFC 4880 §5.2.3.6, compatible with all
+    /// PGP implementations including pgpy (Python).
     /// </summary>
     /// <returns>ASCII-armored (private key, public key) tuple.</returns>
     public async Task<(string armoredPriv, string armoredPub)> GenerateKeypairAsync(
@@ -39,24 +47,72 @@ public sealed class PgpManager
         string pass = ToInsecureString(passphrase);
         try
         {
-            using var pubStream  = new MemoryStream();
-            using var privStream = new MemoryStream();
-            var pgp = new PGP();
-            await pgp.GenerateKeyAsync(pubStream, privStream, alias, pass, strength: 4096);
-            string armoredPub  = Encoding.UTF8.GetString(pubStream.ToArray());
-            string armoredPriv = Encoding.UTF8.GetString(privStream.ToArray());
+            (string armoredPriv, string armoredPub) =
+                await Task.Run(() => GenerateKeypairCore(alias, pass));
             _logger.LogInformation("RSA-4096 keypair generated for alias '{Alias}'.", alias);
             return (armoredPriv, armoredPub);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not KeyGenerationException)
         {
             throw new KeyGenerationException(inner: ex);
         }
         finally
         {
-            // Overwrite local pass variable as soon as possible
             pass = new string('\0', pass.Length);
         }
+    }
+
+    private static (string armoredPriv, string armoredPub) GenerateKeypairCore(
+        string alias, string passphrase)
+    {
+        // RSA-4096 key pair via BouncyCastle
+        var rsaGen = new RsaKeyPairGenerator();
+        rsaGen.Init(new RsaKeyGenerationParameters(
+            BigInteger.ValueOf(65537),
+            new SecureRandom(),
+            4096,
+            25));
+        AsymmetricCipherKeyPair rsaKeyPair = rsaGen.GenerateKeyPair();
+
+        var pgpKeyPair = new PgpKeyPair(
+            PublicKeyAlgorithmTag.RsaGeneral, rsaKeyPair, DateTime.UtcNow);
+
+        // Build the self-signature subpackets.
+        // SetKeyExpirationTime is intentionally NOT called — omitting the subpacket
+        // means "never expires" per RFC 4880.  PgpCore's GenerateKeyAsync adds a
+        // KeyExpirationTime=0 subpacket which pgpy (Python) misinterprets as
+        // "expired at creation time", silently discarding all incoming messages.
+        var hashedGen = new PgpSignatureSubpacketGenerator();
+        // KeyFlags: 0x02=Sign, 0x04=EncryptComm, 0x08=EncryptStorage
+        hashedGen.SetKeyFlags(false, 0x02 | 0x04 | 0x08);
+        hashedGen.SetPreferredSymmetricAlgorithms(false,
+            [(int)SymmetricKeyAlgorithmTag.Aes256]);
+        hashedGen.SetPreferredHashAlgorithms(false,
+            [(int)HashAlgorithmTag.Sha512, (int)HashAlgorithmTag.Sha384,
+             (int)HashAlgorithmTag.Sha256]);
+
+        var keyRingGen = new PgpKeyRingGenerator(
+            PgpSignature.PositiveCertification,
+            pgpKeyPair,
+            alias,
+            SymmetricKeyAlgorithmTag.Aes256,
+            passphrase.ToCharArray(),
+            true,               // useSha1 = use SHA-1 for S2K (standard)
+            hashedGen.Generate(),
+            null,
+            new SecureRandom());
+
+        using var privMs = new MemoryStream();
+        using (var ao = new ArmoredOutputStream(privMs))
+            keyRingGen.GenerateSecretKeyRing().Encode(ao);
+
+        using var pubMs = new MemoryStream();
+        using (var ao = new ArmoredOutputStream(pubMs))
+            keyRingGen.GeneratePublicKeyRing().Encode(ao);
+
+        return (
+            Encoding.UTF8.GetString(privMs.ToArray()),
+            Encoding.UTF8.GetString(pubMs.ToArray()));
     }
 
     // -------------------------------------------------------------------------
