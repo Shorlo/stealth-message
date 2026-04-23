@@ -320,6 +320,8 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
     // IAsyncDisposable
     // ---------------------------------------------------------------------------
 
+    public void ReturnToHub() => _app.ReturnToHub();
+
     public async ValueTask DisposeAsync()
     {
         if (_client is not null) await _client.DisposeAsync();

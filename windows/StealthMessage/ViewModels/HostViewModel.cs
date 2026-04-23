@@ -440,6 +440,8 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
     // IAsyncDisposable
     // ---------------------------------------------------------------------------
 
+    public void ReturnToHub() => _app.ReturnToHub();
+
     public async ValueTask DisposeAsync() => await _server.DisposeAsync();
 
     public event PropertyChangedEventHandler? PropertyChanged;

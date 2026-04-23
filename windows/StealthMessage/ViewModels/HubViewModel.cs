@@ -27,6 +27,7 @@ public sealed class HubViewModel : INotifyPropertyChanged
 
         HostCommand            = new RelayCommand(HostAsync);
         JoinCommand            = new RelayCommand(JoinAsync);
+        ResumeJoinCommand      = new RelayCommand(ResumeJoinAsync);
         DiscoverRoomsCommand   = new RelayCommand(DiscoverRoomsAsync);
         CopyFingerprintCommand = new SyncRelayCommand(CopyFingerprint);
     }
@@ -37,6 +38,10 @@ public sealed class HubViewModel : INotifyPropertyChanged
 
     public string Fingerprint => _app.Fingerprint ?? string.Empty;
     public string Alias       => _app.Alias       ?? string.Empty;
+
+    // Resume state — read live from the preserved ViewModels
+    public bool IsHostRunning   => _app.ActiveHostViewModel?.IsRunning   ?? false;
+    public bool IsJoinConnected => _app.ActiveJoinViewModel?.IsConnected ?? false;
 
     public string ServerAddress
     {
@@ -76,6 +81,7 @@ public sealed class HubViewModel : INotifyPropertyChanged
 
     public ICommand HostCommand            { get; }
     public ICommand JoinCommand            { get; }
+    public ICommand ResumeJoinCommand      { get; }
     public ICommand DiscoverRoomsCommand   { get; }
     public ICommand CopyFingerprintCommand { get; }
 
@@ -127,6 +133,13 @@ public sealed class HubViewModel : INotifyPropertyChanged
             ErrorMessage = "Enter a server address.";
             return Task.CompletedTask;
         }
+        // Pass server address and room so JoinView doesn't need re-entry
+        _app.NavigateToJoin(BuildServerUri(), _roomId);
+        return Task.CompletedTask;
+    }
+
+    private Task ResumeJoinAsync()
+    {
         _app.NavigateTo(Screen.Join);
         return Task.CompletedTask;
     }

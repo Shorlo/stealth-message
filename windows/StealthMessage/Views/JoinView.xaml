@@ -20,6 +20,10 @@
                 BorderThickness="0,0,1,0">
             <StackPanel Margin="12" Spacing="12">
 
+                <!-- Back to Hub -->
+                <Button Content="← Hub" Padding="8,4" HorizontalAlignment="Left"
+                        Click="BackButton_Click" />
+
                 <!-- Connect form -->
                 <TextBox Header="Server (host:port)"
                          PlaceholderText="e.g. 192.168.1.1:8765"

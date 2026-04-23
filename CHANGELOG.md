@@ -10,6 +10,18 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `windows/StealthMessage`: navigation between Hub ↔ Host and Hub ↔ Join now works correctly.
+  - `HostView` and `JoinView` each have a **← Hub** button that returns to the Hub screen
+    without destroying the running server or active connection (mirrors macOS behaviour).
+  - `AppViewModel` now preserves `HostViewModel` and `JoinViewModel` instances across navigation
+    (`??=` reuse pattern). A running server survives the round-trip to Hub and back.
+  - `HubView` shows a green "Server is running" / "Connected" status indicator when returning
+    from an active session, and replaces the action buttons with "Resume server" / "Resume chat".
+  - `HubViewModel.JoinAsync` now pre-fills `JoinViewModel.ServerUri` and `RoomId` with the
+    address entered in Hub, so the user does not have to re-enter them in JoinView.
+  - Active ViewModels are cleared on a new login (Setup / Unlock) so each session starts clean.
+
+### Added
 - `windows/StealthMessage`: messages in the chat now include a `[HH:mm]` timestamp prefix
   (local time captured at the moment of receipt/send). Applies to user messages, system messages,
   and error notices in both host mode (`HostViewModel`) and peer mode (`JoinViewModel`).

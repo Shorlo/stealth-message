@@ -10,6 +10,11 @@ public sealed partial class HostView : UserControl
 
     private HostViewModel? Vm => DataContext as HostViewModel;
 
+    private void BackButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        (DataContext as HostViewModel)?.ReturnToHub();
+    }
+
     private void PortBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
     {
         if (Vm is not null && !double.IsNaN(args.NewValue))

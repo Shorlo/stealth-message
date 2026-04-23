@@ -22,13 +22,18 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
+                <!-- Back to Hub -->
+                <Button Grid.Row="0" Content="← Hub" Margin="12,8,12,0" Padding="8,4"
+                        Click="BackButton_Click" />
+
                 <!-- Start/Stop server -->
-                <StackPanel Grid.Row="0" Margin="12,12,12,0" Spacing="8">
+                <StackPanel Grid.Row="1" Margin="12,12,12,0" Spacing="8">
                     <NumberBox x:Name="PortBox" Header="Port"
                                Value="8765" Minimum="1024" Maximum="65535"
                                ValueChanged="PortBox_ValueChanged" />
@@ -46,7 +51,7 @@
                 </StackPanel>
 
                 <!-- Rooms -->
-                <Expander Grid.Row="1" Header="Rooms" IsExpanded="True"
+                <Expander Grid.Row="2" Header="Rooms" IsExpanded="True"
                           HorizontalAlignment="Stretch" Margin="12,8,12,0">
                     <StackPanel Spacing="6">
                         <TextBox PlaceholderText="Room name"
@@ -70,7 +75,7 @@
                 </Expander>
 
                 <!-- Connected peers -->
-                <Expander Grid.Row="2" Header="Connected peers" IsExpanded="True"
+                <Expander Grid.Row="3" Header="Connected peers" IsExpanded="True"
                           HorizontalAlignment="Stretch" Margin="12,8,12,0">
                     <ListView x:Name="PeersListView"
                               ItemsSource="{Binding ConnectedPeers}"
@@ -91,7 +96,7 @@
                 </Expander>
 
                 <!-- Context buttons for selected peer -->
-                <StackPanel Grid.Row="3" Margin="12,4,12,0" Spacing="4"
+                <StackPanel Grid.Row="4" Margin="12,4,12,0" Spacing="4"
                             Orientation="Horizontal"
                             Visibility="{Binding SelectedItem, ElementName=PeersListView,
                                          Converter={StaticResource NotNullToVisibilityConverter}}">
@@ -105,7 +110,7 @@
                 </StackPanel>
 
                 <!-- Pending approvals -->
-                <Expander Grid.Row="4" Header="Pending approvals" IsExpanded="True"
+                <Expander Grid.Row="5" Header="Pending approvals" IsExpanded="True"
                           HorizontalAlignment="Stretch" Margin="12,8,12,8"
                           Visibility="{Binding PendingPeers.Count,
                                        Converter={StaticResource CountToVisibilityConverter}}">

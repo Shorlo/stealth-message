@@ -15,4 +15,9 @@ public sealed partial class JoinView : UserControl
         if (e.Key == Windows.System.VirtualKey.Enter)
             Vm?.SendMessageCommand.Execute(null);
     }
+
+    private void BackButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        Vm?.ReturnToHub();
+    }
 }

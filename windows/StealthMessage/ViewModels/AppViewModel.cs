@@ -24,6 +24,10 @@ public sealed class AppViewModel : INotifyPropertyChanged
     private Screen   _currentScreen  = Screen.Setup;
     private object?  _currentViewModel;
 
+    // Persisted ViewModels — survive Hub ↔ Host/Join navigation (same as macOS)
+    private HostViewModel? _activeHostViewModel;
+    private JoinViewModel? _activeJoinViewModel;
+
     // Session state — held in memory only
     private string?     _armoredPriv;
     private string?     _armoredPub;
@@ -61,6 +65,10 @@ public sealed class AppViewModel : INotifyPropertyChanged
     public string? Alias       => _alias;
     public string? Fingerprint => _fingerprint;
 
+    // Active screen ViewModels — exposed so Hub can read running/connected state
+    public HostViewModel? ActiveHostViewModel => _activeHostViewModel;
+    public JoinViewModel? ActiveJoinViewModel => _activeJoinViewModel;
+
     // ---------------------------------------------------------------------------
     // Initialisation — call once on app startup
     // ---------------------------------------------------------------------------
@@ -89,11 +97,39 @@ public sealed class AppViewModel : INotifyPropertyChanged
             Screen.Setup   => new SetupViewModel(_pgp, _keyStore, this),
             Screen.Unlock  => new UnlockViewModel(_pgp, _keyStore, this),
             Screen.Hub     => new HubViewModel(_pgp, this),
-            Screen.Host    => new HostViewModel(_pgp, this),
-            Screen.Join    => new JoinViewModel(_pgp, this),
+            // Reuse existing VMs so a running server / active connection survives Hub navigation
+            Screen.Host    => _activeHostViewModel ??= new HostViewModel(_pgp, this),
+            Screen.Join    => _activeJoinViewModel ??= new JoinViewModel(_pgp, this),
             _              => throw new ArgumentOutOfRangeException(nameof(screen))
         };
         _logger.LogInformation("Navigated to {Screen}.", screen);
+    }
+
+    /// <summary>
+    /// Returns to the Hub screen without destroying Host or Join ViewModels.
+    /// A running server and active connections remain intact.
+    /// </summary>
+    public void ReturnToHub()
+    {
+        CurrentScreen    = Screen.Hub;
+        CurrentViewModel = new HubViewModel(_pgp, this);
+        _logger.LogInformation("Returned to Hub.");
+    }
+
+    /// <summary>
+    /// Navigates to the Join screen, pre-filling server URI and room if provided.
+    /// Reuses an existing JoinViewModel if one is present.
+    /// </summary>
+    public void NavigateToJoin(string serverUri = "", string roomId = "")
+    {
+        _activeJoinViewModel ??= new JoinViewModel(_pgp, this);
+        if (!string.IsNullOrEmpty(serverUri))
+            _activeJoinViewModel.ServerUri = serverUri;
+        if (!string.IsNullOrEmpty(roomId))
+            _activeJoinViewModel.RoomId = roomId;
+        CurrentScreen    = Screen.Join;
+        CurrentViewModel = _activeJoinViewModel;
+        _logger.LogInformation("Navigated to Join.");
     }
 
     // ---------------------------------------------------------------------------
@@ -115,6 +151,10 @@ public sealed class AppViewModel : INotifyPropertyChanged
         _alias             = alias;
         _fingerprint       = fingerprint;
         _sessionPassphrase = passphrase;
+
+        // Discard any VMs left over from a previous session
+        _activeHostViewModel = null;
+        _activeJoinViewModel = null;
 
         OnPropertyChanged(nameof(Alias));
         OnPropertyChanged(nameof(Fingerprint));

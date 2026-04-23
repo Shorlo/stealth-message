@@ -51,11 +51,25 @@
                         <TextBlock Text="Your peers connect to you."
                                    Style="{ThemeResource BodyTextBlockStyle}"
                                    Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                                   TextWrapping="Wrap" />
+                                   TextWrapping="Wrap"
+                                   Visibility="{Binding IsHostRunning, Converter={StaticResource InverseBoolToVisibilityConverter}}" />
+                        <!-- Running status -->
+                        <StackPanel Orientation="Horizontal" Spacing="6"
+                                    Visibility="{Binding IsHostRunning, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <Ellipse Width="8" Height="8" Fill="Green" VerticalAlignment="Center" />
+                            <TextBlock Text="Server is running"
+                                       Style="{ThemeResource CaptionTextBlockStyle}"
+                                       Foreground="Green" VerticalAlignment="Center" />
+                        </StackPanel>
                         <Button Content="Start server"
                                 Style="{ThemeResource AccentButtonStyle}"
                                 HorizontalAlignment="Stretch"
-                                Command="{Binding HostCommand}" />
+                                Command="{Binding HostCommand}"
+                                Visibility="{Binding IsHostRunning, Converter={StaticResource InverseBoolToVisibilityConverter}}" />
+                        <Button Content="Resume server"
+                                HorizontalAlignment="Stretch"
+                                Command="{Binding HostCommand}"
+                                Visibility="{Binding IsHostRunning, Converter={StaticResource BoolToVisibilityConverter}}" />
                     </StackPanel>
                 </Border>
 
@@ -67,39 +81,59 @@
                     <StackPanel Spacing="12">
                         <TextBlock Text="Join a room"
                                    Style="{ThemeResource SubtitleTextBlockStyle}" />
-                        <TextBox Header="Server address"
-                                 PlaceholderText="host:8765 or ws://…"
-                                 Text="{Binding ServerAddress, Mode=TwoWay}" />
-                        <TextBox Header="Room name (optional)"
-                                 PlaceholderText="Leave blank to discover"
-                                 Text="{Binding RoomId, Mode=TwoWay}" />
-                        <Button Content="Find rooms"
-                                HorizontalAlignment="Stretch"
-                                Command="{Binding DiscoverRoomsCommand}" />
-                        <!-- Room list -->
-                        <ProgressRing IsActive="{Binding IsDiscovering}" />
-                        <ListView ItemsSource="{Binding AvailableRooms}"
-                                  MaxHeight="180"
-                                  Visibility="{Binding AvailableRooms.Count,
-                                               Converter={StaticResource CountToVisibilityConverter}}">
-                            <ListView.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="{Binding Id}"
-                                                   Style="{ThemeResource BodyStrongTextBlockStyle}" />
-                                        <TextBlock Text="{Binding Kind}"
-                                                   Style="{ThemeResource CaptionTextBlockStyle}"
-                                                   Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
-                                        <TextBlock Text="{Binding Peers}"
-                                                   Style="{ThemeResource CaptionTextBlockStyle}" />
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
-                        <Button Content="Connect"
-                                Style="{ThemeResource AccentButtonStyle}"
-                                HorizontalAlignment="Stretch"
-                                Command="{Binding JoinCommand}" />
+
+                        <!-- Connected status + resume -->
+                        <StackPanel Spacing="8"
+                                    Visibility="{Binding IsJoinConnected, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Ellipse Width="8" Height="8" Fill="Green" VerticalAlignment="Center" />
+                                <TextBlock Text="Connected"
+                                           Style="{ThemeResource CaptionTextBlockStyle}"
+                                           Foreground="Green" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button Content="Resume chat"
+                                    Style="{ThemeResource AccentButtonStyle}"
+                                    HorizontalAlignment="Stretch"
+                                    Command="{Binding ResumeJoinCommand}" />
+                        </StackPanel>
+
+                        <!-- Connect form (shown when not connected) -->
+                        <StackPanel Spacing="12"
+                                    Visibility="{Binding IsJoinConnected, Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                            <TextBox Header="Server address"
+                                     PlaceholderText="host:8765 or ws://…"
+                                     Text="{Binding ServerAddress, Mode=TwoWay}" />
+                            <TextBox Header="Room name (optional)"
+                                     PlaceholderText="Leave blank to discover"
+                                     Text="{Binding RoomId, Mode=TwoWay}" />
+                            <Button Content="Find rooms"
+                                    HorizontalAlignment="Stretch"
+                                    Command="{Binding DiscoverRoomsCommand}" />
+                            <ProgressRing IsActive="{Binding IsDiscovering}" />
+                            <ListView ItemsSource="{Binding AvailableRooms}"
+                                      MaxHeight="180"
+                                      Visibility="{Binding AvailableRooms.Count,
+                                                   Converter={StaticResource CountToVisibilityConverter}}">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding Id}"
+                                                       Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="{Binding Kind}"
+                                                       Style="{ThemeResource CaptionTextBlockStyle}"
+                                                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                                            <TextBlock Text="{Binding Peers}"
+                                                       Style="{ThemeResource CaptionTextBlockStyle}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <Button Content="Connect"
+                                    Style="{ThemeResource AccentButtonStyle}"
+                                    HorizontalAlignment="Stretch"
+                                    Command="{Binding JoinCommand}" />
+                        </StackPanel>
+
                         <InfoBar IsOpen="{Binding ErrorMessage, Converter={StaticResource NotEmptyToBoolConverter}}"
                                  Severity="Error"
                                  Message="{Binding ErrorMessage}" />
