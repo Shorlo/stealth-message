@@ -32,18 +32,20 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
         _app        = app;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
 
-        ConnectCommand    = new RelayCommand(ConnectAsync,    () => !_isConnected);
-        DisconnectCommand = new RelayCommand(DisconnectAsync, () =>  _isConnected);
+        ConnectCommand     = new RelayCommand(ConnectAsync,    () => !_isConnected);
+        DisconnectCommand  = new RelayCommand(DisconnectAsync, () =>  _isConnected);
         SendMessageCommand = new RelayCommand(SendMessageAsync,
             () => _isConnected && !string.IsNullOrWhiteSpace(_messageInput));
+        SwitchRoomCommand  = new RelayCommand<string>(SwitchRoomAsync);
     }
 
     // ---------------------------------------------------------------------------
     // Collections
     // ---------------------------------------------------------------------------
 
-    public ObservableCollection<PeerViewModel> Peers    { get; } = new();
-    public ObservableCollection<string>        Messages { get; } = new();
+    public ObservableCollection<PeerViewModel> Peers              { get; } = new();
+    public ObservableCollection<string>        Messages           { get; } = new();
+    public ObservableCollection<string>        AvailableGroupRooms { get; } = new();
 
     // ---------------------------------------------------------------------------
     // Properties
@@ -120,6 +122,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
     public ICommand ConnectCommand     { get; }
     public ICommand DisconnectCommand  { get; }
     public ICommand SendMessageCommand { get; }
+    public ICommand SwitchRoomCommand  { get; }
 
     // ---------------------------------------------------------------------------
     // Connect
@@ -138,6 +141,12 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
             ErrorMessage = "Enter a room name.";
             return;
         }
+
+        // Fresh log for every new room — don't bleed messages across sessions
+        Messages.Clear();
+        AvailableGroupRooms.Clear();
+        Peers.Clear();
+        PeerFingerprint = string.Empty;
 
         var (armoredPriv, armoredPub, alias, passphrase) = _app.GetCredentials();
         _client = new StealthClient(NullLogger<StealthClient>.Instance);
@@ -196,6 +205,17 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                 await Task.CompletedTask;
             };
 
+            _client.OnRoomList = frame =>
+            {
+                _dispatcher.TryEnqueue(() =>
+                {
+                    AvailableGroupRooms.Clear();
+                    foreach (var room in frame.Groups)
+                        AvailableGroupRooms.Add(room);
+                });
+                return Task.CompletedTask;
+            };
+
             _client.OnKicked = async frame =>
             {
                 string ts = Ts();
@@ -204,6 +224,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                     Messages.Add($"[{ts}] [System] You were kicked: {frame.Reason}");
                     IsConnected = false;
                     IsPending   = false;
+                    AvailableGroupRooms.Clear();
                 });
                 await Task.CompletedTask;
             };
@@ -211,8 +232,6 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
             _client.OnMoved = frame =>
             {
                 string newRoom = frame.Room;
-                string ts      = Ts();
-                _dispatcher.TryEnqueue(() => Messages.Add($"[{ts}] [System] Moved to room: {newRoom}"));
                 var oldClient = _client;
                 _client = null;
                 if (oldClient is not null)
@@ -241,6 +260,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                 {
                     IsConnected = false;
                     IsPending   = false;
+                    AvailableGroupRooms.Clear();
                     Messages.Add($"[{ts}] [System] Disconnected.");
                 });
                 await Task.CompletedTask;
@@ -248,7 +268,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
 
             IsPending   = false;
             IsConnected = true;
-            Messages.Add($"[{Ts()}] [System] Connected. Host: {hostAlias}");
+            Messages.Add($"[{Ts()}] [System] Connected to {_roomId}. Host: {hostAlias}");
         }
         catch (ProtocolException ex)
         {
@@ -277,7 +297,28 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
         if (client is not null) await client.DisposeAsync();
         IsConnected = false;
         IsPending   = false;
+        AvailableGroupRooms.Clear();
         Messages.Add($"[{Ts()}] [System] Disconnected.");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Switch room (reconnect to a different room on the same server)
+    // ---------------------------------------------------------------------------
+
+    private async Task SwitchRoomAsync(string? newRoom)
+    {
+        if (string.IsNullOrWhiteSpace(newRoom)) return;
+        var client = _client;
+        _client = null;
+        if (client is not null)
+        {
+            client.OnDisconnected = null;  // suppress the generic disconnect event
+            await client.DisposeAsync();
+        }
+        IsConnected = false;
+        IsPending   = false;
+        RoomId      = newRoom;
+        await ConnectAsync();
     }
 
     // ---------------------------------------------------------------------------
