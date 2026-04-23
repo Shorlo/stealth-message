@@ -10,6 +10,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- `windows/StealthMessage/ViewModels/HubViewModel.cs` — `BuildServerUri` produced an
+  invalid URL in two cases: (1) `!addr.Contains(':')` matched the `ws:` scheme colon so the
+  default port was never appended when the user omitted it; (2) `host/port` shorthand
+  (e.g. `192.168.1.30/8765`) was left as a URL path instead of being converted to a port.
+  Both forms now produce the correct `ws://host:port` URI.
+- `windows/StealthMessage/ViewModels/JoinViewModel.cs` — `NormaliseUri` had the same
+  `host/port`-as-path defect; fixed with the same heuristic (slash before all-digit
+  segment → treat segment as port number).
 - `windows/StealthMessage/ViewModels/JoinViewModel.cs`: room-move (host moves peer) now works
   reliably.  Two bugs were present:
   1. **UI-thread violation** — `ConnectAsync` was called from the receive-loop background thread,

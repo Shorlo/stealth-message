@@ -320,9 +320,20 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private static string NormaliseUri(string raw)
     {
-        if (raw.StartsWith("ws://", StringComparison.OrdinalIgnoreCase) ||
+        raw = raw.Trim();
+
+        if (raw.StartsWith("ws://",  StringComparison.OrdinalIgnoreCase) ||
             raw.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
             return raw;
+
+        // Accept "host/port" shorthand (e.g. "192.168.1.30/8765")
+        if (!raw.Contains(':'))
+        {
+            int slash = raw.IndexOf('/');
+            if (slash > 0 && int.TryParse(raw.AsSpan(slash + 1), out _))
+                raw = raw[..slash] + ':' + raw[(slash + 1)..];
+        }
+
         return "ws://" + raw;
     }
 

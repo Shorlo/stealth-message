@@ -161,9 +161,24 @@ public sealed class HubViewModel : INotifyPropertyChanged
 
     private string BuildServerUri()
     {
-        string addr = _serverAddress.Contains("://") ? _serverAddress : $"ws://{_serverAddress}";
-        if (!addr.Contains(':')) addr += $":{_port}";
-        return addr;
+        string raw = _serverAddress.Trim();
+
+        // Already fully qualified — use as-is
+        if (raw.StartsWith("ws://",  StringComparison.OrdinalIgnoreCase) ||
+            raw.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
+            return raw;
+
+        if (!raw.Contains(':'))
+        {
+            // Accept "host/port" shorthand (e.g. "192.168.1.30/8765")
+            int slash = raw.IndexOf('/');
+            if (slash > 0 && int.TryParse(raw.AsSpan(slash + 1), out _))
+                raw = raw[..slash] + ':' + raw[(slash + 1)..];
+            else if (slash < 0)
+                raw += $":{_port}";   // no port supplied — use default
+        }
+
+        return "ws://" + raw;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
