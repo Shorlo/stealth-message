@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Dispatching;
 using StealthMessage.Crypto;
@@ -20,6 +19,7 @@ public sealed class PendingPeerViewModel
 {
     public string Alias       { get; init; } = string.Empty;
     public string Fingerprint { get; init; } = string.Empty;
+    public string Room        { get; init; } = string.Empty;
 
     internal TaskCompletionSource<bool> Tcs { get; } = new();
 }
@@ -31,14 +31,29 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
     private readonly StealthServer   _server;
     private readonly DispatcherQueue _dispatcher;
 
-    // alias → decoded armored pubkey (populated on peer connect)
+    // Single lock guards both dictionaries (always acquired together).
+    private readonly object _peersLock = new();
+
+    // alias → decoded armored pubkey
     private readonly Dictionary<string, string> _peerPubKeys = new(StringComparer.Ordinal);
+    // alias → room name
+    private readonly Dictionary<string, string> _peerRooms   = new(StringComparer.Ordinal);
+
+    // Per-room collections — UI thread only
+    private readonly Dictionary<string, ObservableCollection<PeerViewModel>> _roomPeers
+        = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ObservableCollection<string>> _roomMessages
+        = new(StringComparer.Ordinal);
+
+    private static readonly ObservableCollection<PeerViewModel> _emptyPeers    = new();
+    private static readonly ObservableCollection<string>        _emptyMessages  = new();
 
     private string _port         = "8765";
     private string _newRoomName  = string.Empty;
     private string _newRoomKind  = "1to1";
     private string _messageInput = string.Empty;
     private string _errorMessage = string.Empty;
+    private string _selectedRoom = string.Empty;
     private bool   _isRunning;
 
     public HostViewModel(PgpManager pgp, AppViewModel app)
@@ -48,43 +63,67 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         _server     = new StealthServer(NullLogger<StealthServer>.Instance);
 
-        _server.OnPeerConnected = (alias, _fp, armoredPub) =>
+        _server.OnPeerConnected = (alias, _fp, armoredPub, room) =>
         {
             string fp = string.Empty;
             try { fp = _pgp.GetFingerprint(armoredPub); } catch { }
-            lock (_peerPubKeys) { _peerPubKeys[alias] = armoredPub; }
-            _ = _dispatcher.TryEnqueue(() =>
-                ConnectedPeers.Add(new PeerViewModel { Alias = alias, Fingerprint = fp }));
-        };
-
-        _server.OnPeerDisconnected = alias =>
-        {
-            lock (_peerPubKeys) { _peerPubKeys.Remove(alias); }
+            lock (_peersLock)
+            {
+                _peerPubKeys[alias] = armoredPub;
+                _peerRooms[alias]   = room;
+            }
             _ = _dispatcher.TryEnqueue(() =>
             {
-                var p = ConnectedPeers.FirstOrDefault(x => x.Alias == alias);
-                if (p is not null) ConnectedPeers.Remove(p);
+                if (_roomPeers.TryGetValue(room, out var peers))
+                    peers.Add(new PeerViewModel { Alias = alias, Fingerprint = fp });
             });
         };
 
-        _server.OnMessage = async (payload, alias, peerArmoredPub) =>
+        _server.OnPeerDisconnected = (alias, room) =>
+        {
+            lock (_peersLock)
+            {
+                _peerPubKeys.Remove(alias);
+                _peerRooms.Remove(alias);
+            }
+            _ = _dispatcher.TryEnqueue(() =>
+            {
+                if (_roomPeers.TryGetValue(room, out var peers))
+                {
+                    var p = peers.FirstOrDefault(x => x.Alias == alias);
+                    if (p is not null) peers.Remove(p);
+                }
+            });
+        };
+
+        _server.OnMessage = async (payload, alias, peerArmoredPub, room) =>
         {
             var (armoredPriv, _, _, passphrase) = _app.GetCredentials();
             try
             {
                 string plaintext = await _pgp.DecryptAsync(
                     payload, armoredPriv, peerArmoredPub, passphrase);
-                _dispatcher.TryEnqueue(() => Messages.Add($"[{alias}] {plaintext}"));
+                _ = _dispatcher.TryEnqueue(() =>
+                {
+                    if (_roomMessages.TryGetValue(room, out var msgs))
+                        msgs.Add($"[{alias}] {plaintext}");
+                });
             }
             catch (SignatureInvalidException)
             {
-                _dispatcher.TryEnqueue(() =>
-                    Messages.Add($"[!] Message from {alias} discarded — invalid signature."));
+                _ = _dispatcher.TryEnqueue(() =>
+                {
+                    if (_roomMessages.TryGetValue(room, out var msgs))
+                        msgs.Add($"[!] Message from {alias} discarded — invalid signature.");
+                });
             }
             catch (Exception ex)
             {
-                _dispatcher.TryEnqueue(() =>
-                    Messages.Add($"[{alias}]: <decryption failed: {ex.Message}>"));
+                _ = _dispatcher.TryEnqueue(() =>
+                {
+                    if (_roomMessages.TryGetValue(room, out var msgs))
+                        msgs.Add($"[{alias}]: <decryption failed: {ex.Message}>");
+                });
             }
         };
 
@@ -93,7 +132,9 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
         StartServerCommand  = new RelayCommand(StartServerAsync,  () => !_isRunning);
         StopServerCommand   = new RelayCommand(StopServerAsync,   () =>  _isRunning);
         SendMessageCommand  = new RelayCommand(SendMessageAsync,
-            () => _isRunning && !string.IsNullOrWhiteSpace(_messageInput));
+            () => _isRunning
+               && !string.IsNullOrEmpty(_selectedRoom)
+               && !string.IsNullOrWhiteSpace(_messageInput));
         AddRoomCommand      = new SyncRelayCommand(AddRoom);
         ApproveCommand      = new RelayCommand<PendingPeerViewModel>(ApproveAsync);
         DenyCommand         = new RelayCommand<PendingPeerViewModel>(DenyAsync);
@@ -105,14 +146,34 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
     // Collections
     // ---------------------------------------------------------------------------
 
-    public ObservableCollection<PeerViewModel>        ConnectedPeers { get; } = new();
-    public ObservableCollection<PendingPeerViewModel> PendingPeers   { get; } = new();
-    public ObservableCollection<string>               Messages       { get; } = new();
-    public ObservableCollection<string>               Rooms          { get; } = new();
+    /// <summary>Messages for the currently selected room.</summary>
+    public ObservableCollection<string> Messages
+        => _roomMessages.TryGetValue(_selectedRoom, out var m) ? m : _emptyMessages;
+
+    /// <summary>Peers connected to the currently selected room.</summary>
+    public ObservableCollection<PeerViewModel> ConnectedPeers
+        => _roomPeers.TryGetValue(_selectedRoom, out var p) ? p : _emptyPeers;
+
+    public ObservableCollection<PendingPeerViewModel> PendingPeers { get; } = new();
+    public ObservableCollection<string>               Rooms        { get; } = new();
 
     // ---------------------------------------------------------------------------
     // Properties
     // ---------------------------------------------------------------------------
+
+    public string SelectedRoom
+    {
+        get => _selectedRoom;
+        set
+        {
+            if (_selectedRoom == value) return;
+            _selectedRoom = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(Messages));
+            OnPropertyChanged(nameof(ConnectedPeers));
+            ((RelayCommand)SendMessageCommand).NotifyCanExecuteChanged();
+        }
+    }
 
     public string Port
     {
@@ -189,10 +250,18 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
         var (_, armoredPub, alias, _) = _app.GetCredentials();
         string fingerprint = _pgp.GetFingerprint(armoredPub);
 
-        var initialRooms = Rooms.Select(r => (r, "1to1")).ToList();
+        // Ensure per-room collections exist for all already-added rooms
+        foreach (var room in Rooms)
+            EnsureRoomCollections(room);
+
+        // Auto-select first room when none is selected
+        if (string.IsNullOrEmpty(_selectedRoom) && Rooms.Count > 0)
+            SelectedRoom = Rooms[0];
+
+        var initialRooms = Rooms.Select(r => (r, _newRoomKind)).ToList();
         _server.Start(port, alias, armoredPub, fingerprint, initialRooms);
         IsRunning = true;
-        Messages.Add($"[System] Server started on port {port}.");
+        AddSystemMessage($"[System] Server started on port {port}.");
         return Task.CompletedTask;
     }
 
@@ -200,31 +269,46 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         await _server.StopAsync();
         IsRunning = false;
-        lock (_peerPubKeys) { _peerPubKeys.Clear(); }
-        Messages.Add("[System] Server stopped.");
+        lock (_peersLock)
+        {
+            _peerPubKeys.Clear();
+            _peerRooms.Clear();
+        }
+        foreach (var peers in _roomPeers.Values) peers.Clear();
+        AddSystemMessage("[System] Server stopped.");
     }
 
     // ---------------------------------------------------------------------------
-    // Message send — encrypt individually for each connected peer
+    // Message send — encrypt individually for each peer in the selected room
     // ---------------------------------------------------------------------------
 
     private async Task SendMessageAsync()
     {
         if (string.IsNullOrWhiteSpace(_messageInput)) return;
+        if (string.IsNullOrEmpty(_selectedRoom)) return;
 
         var (armoredPriv, _, alias, passphrase) = _app.GetCredentials();
         string text = _messageInput;
+        string room = _selectedRoom;
 
+        // Collect peers in the selected room only
         List<(string peerAlias, string armoredPub)> peers;
-        lock (_peerPubKeys)
+        lock (_peersLock)
         {
-            peers = _peerPubKeys.Select(kv => (kv.Key, kv.Value)).ToList();
+            peers = _peerPubKeys
+                .Where(kv => _peerRooms.TryGetValue(kv.Key, out var r) && r == room)
+                .Select(kv => (kv.Key, kv.Value))
+                .ToList();
         }
 
         if (peers.Count == 0)
         {
-            _dispatcher.TryEnqueue(() => Messages.Add("[System] No peers connected."));
-            MessageInput = string.Empty;
+            _ = _dispatcher.TryEnqueue(() =>
+            {
+                if (_roomMessages.TryGetValue(room, out var log))
+                    log.Add("[System] No peers in this room.");
+                MessageInput = string.Empty;
+            });
             return;
         }
 
@@ -240,14 +324,18 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
             }
             catch (Exception ex)
             {
-                _dispatcher.TryEnqueue(() =>
-                    Messages.Add($"[!] Failed to send to {peerAlias}: {ex.Message}"));
+                _ = _dispatcher.TryEnqueue(() =>
+                {
+                    if (_roomMessages.TryGetValue(room, out var log))
+                        log.Add($"[!] Failed to send to {peerAlias}: {ex.Message}");
+                });
             }
         }
 
-        _dispatcher.TryEnqueue(() =>
+        _ = _dispatcher.TryEnqueue(() =>
         {
-            Messages.Add($"[{alias}] {text}");
+            if (_roomMessages.TryGetValue(room, out var log))
+                log.Add($"[{alias}] {text}");
             MessageInput = string.Empty;
         });
     }
@@ -262,23 +350,50 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
         string name = _newRoomName.Trim();
         if (!Rooms.Contains(name))
         {
+            EnsureRoomCollections(name);
             Rooms.Add(name);
             if (_isRunning) _server.AddRoom(name, _newRoomKind);
+            // Auto-select if this is the first room
+            if (string.IsNullOrEmpty(_selectedRoom)) SelectedRoom = name;
         }
         NewRoomName = string.Empty;
+    }
+
+    private void EnsureRoomCollections(string room)
+    {
+        if (!_roomMessages.ContainsKey(room))
+            _roomMessages[room] = new ObservableCollection<string>();
+        if (!_roomPeers.ContainsKey(room))
+            _roomPeers[room] = new ObservableCollection<PeerViewModel>();
+    }
+
+    /// <summary>Adds a system message to the currently selected room (or first available).</summary>
+    private void AddSystemMessage(string msg)
+    {
+        ObservableCollection<string>? target = null;
+        if (!string.IsNullOrEmpty(_selectedRoom))
+            _roomMessages.TryGetValue(_selectedRoom, out target);
+        if (target is null && _roomMessages.Count > 0)
+            target = _roomMessages.Values.First();
+        target?.Add(msg);
     }
 
     // ---------------------------------------------------------------------------
     // Peer management
     // ---------------------------------------------------------------------------
 
-    private async Task<bool> HandleJoinRequestAsync(string alias, string fingerprint)
+    private async Task<bool> HandleJoinRequestAsync(string alias, string fingerprint, string room)
     {
         var tcs     = new TaskCompletionSource<bool>();
-        var pending = new PendingPeerViewModel { Alias = alias, Fingerprint = fingerprint };
+        var pending = new PendingPeerViewModel
+        {
+            Alias       = alias,
+            Fingerprint = fingerprint,
+            Room        = room,
+        };
 
         _pendingTasks[alias] = tcs;
-        _dispatcher.TryEnqueue(() => PendingPeers.Add(pending));
+        _ = _dispatcher.TryEnqueue(() => PendingPeers.Add(pending));
 
         return await tcs.Task;
     }
@@ -289,7 +404,7 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         if (pending is null) return Task.CompletedTask;
         if (_pendingTasks.Remove(pending.Alias, out var tcs)) tcs.TrySetResult(true);
-        _dispatcher.TryEnqueue(() => PendingPeers.Remove(pending));
+        _ = _dispatcher.TryEnqueue(() => PendingPeers.Remove(pending));
         return Task.CompletedTask;
     }
 
@@ -297,7 +412,7 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         if (pending is null) return Task.CompletedTask;
         if (_pendingTasks.Remove(pending.Alias, out var tcs)) tcs.TrySetResult(false);
-        _dispatcher.TryEnqueue(() => PendingPeers.Remove(pending));
+        _ = _dispatcher.TryEnqueue(() => PendingPeers.Remove(pending));
         return Task.CompletedTask;
     }
 

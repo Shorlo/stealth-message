@@ -54,16 +54,16 @@ public sealed class StealthServer : IAsyncDisposable
     // ---------------------------------------------------------------------------
 
     /// <summary>Called when a peer wants to join a group room. Return true to approve.</summary>
-    public Func<string, string, Task<bool>>? OnJoinRequest { get; set; }
+    public Func<string, string, string, Task<bool>>? OnJoinRequest { get; set; }
 
-    /// <summary>Called when a peer connects. Parameters: alias, fingerprint, armoredPubKey.</summary>
-    public Action<string, string, string>? OnPeerConnected { get; set; }
+    /// <summary>Called when a peer connects. Parameters: alias, fingerprint, armoredPubKey, room.</summary>
+    public Action<string, string, string, string>? OnPeerConnected { get; set; }
 
-    /// <summary>Called when a peer disconnects. Parameter: alias.</summary>
-    public Action<string>? OnPeerDisconnected { get; set; }
+    /// <summary>Called when a peer disconnects. Parameters: alias, room.</summary>
+    public Action<string, string>? OnPeerDisconnected { get; set; }
 
-    /// <summary>Called when a message arrives. Parameters: payload, senderAlias, peerArmoredPub.</summary>
-    public Func<string, string, string, Task>? OnMessage { get; set; }
+    /// <summary>Called when a message arrives. Parameters: payload, senderAlias, peerArmoredPub, room.</summary>
+    public Func<string, string, string, string, Task>? OnMessage { get; set; }
 
     public string HostAlias   { get; private set; } = string.Empty;
     public string ArmoredPub  { get; private set; } = string.Empty;
@@ -372,7 +372,7 @@ public sealed class StealthServer : IAsyncDisposable
                     string fp = hello.PubKey.Length > 16 ? hello.PubKey[..16] + "…" : hello.PubKey;
                     using var approvalCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                     approvalCts.CancelAfter(ApprovalTimeout);
-                    try { approved = await OnJoinRequest(hello.Alias, fp); }
+                    try { approved = await OnJoinRequest(hello.Alias, fp, hello.Room); }
                     catch { approved = false; }
                 }
 
@@ -414,7 +414,7 @@ public sealed class StealthServer : IAsyncDisposable
         };
 
         lock (_lock) { room.Peers.Add(peer); }
-        OnPeerConnected?.Invoke(hello.Alias, peer.Fingerprint, peerArmored);
+        OnPeerConnected?.Invoke(hello.Alias, peer.Fingerprint, peerArmored, hello.Room);
         _logger.LogInformation("Peer '{Alias}' joined room '{Room}'.", hello.Alias, hello.Room);
 
         await SendRoomListAsync(ct);
@@ -424,7 +424,7 @@ public sealed class StealthServer : IAsyncDisposable
         finally
         {
             lock (_lock) { room.Peers.Remove(peer); }
-            OnPeerDisconnected?.Invoke(hello.Alias);
+            OnPeerDisconnected?.Invoke(hello.Alias, hello.Room);
             _logger.LogInformation("Peer '{Alias}' left room '{Room}'.", hello.Alias, hello.Room);
             await SendPeerListToRoomAsync(hello.Room, ct);
         }
@@ -451,7 +451,7 @@ public sealed class StealthServer : IAsyncDisposable
                 case MessageFrame msg:
                     await RelayMessageAsync(msg, peer, roomName, ct);
                     if (OnMessage is not null)
-                        await OnMessage(msg.Payload, peer.Alias, peer.ArmoredPub);
+                        await OnMessage(msg.Payload, peer.Alias, peer.ArmoredPub, roomName);
                     break;
                 case PingFrame:
                     await SendAsync(peer, WireFrameSerializer.Serialize(new PongFrame()));

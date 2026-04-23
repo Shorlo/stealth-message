@@ -58,7 +58,8 @@
                         </ComboBox>
                         <Button Content="Add room" HorizontalAlignment="Stretch"
                                 Command="{Binding AddRoomCommand}" />
-                        <ListView ItemsSource="{Binding Rooms}" MaxHeight="100">
+                        <ListView ItemsSource="{Binding Rooms}"
+                                  SelectedItem="{Binding SelectedRoom, Mode=TwoWay}">
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <TextBlock Text="{Binding}" />
@@ -109,6 +110,9 @@
                                 <StackPanel Spacing="4">
                                     <TextBlock Text="{Binding Alias}"
                                                Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock Text="{Binding Room}"
+                                               Style="{ThemeResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
                                     <StackPanel Orientation="Horizontal" Spacing="4">
                                         <Button Content="Approve" Padding="6,2" FontSize="11"
                                                 Style="{ThemeResource AccentButtonStyle}"
@@ -129,12 +133,21 @@
         <!-- Main chat area -->
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
+            <!-- Active room header -->
+            <Border Grid.Row="0" Padding="16,8"
+                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    BorderThickness="0,0,0,1">
+                <TextBlock Text="{Binding SelectedRoom}"
+                           Style="{ThemeResource SubtitleTextBlockStyle}" />
+            </Border>
+
             <!-- Message log -->
-            <ListView Grid.Row="0" ItemsSource="{Binding Messages}" Padding="16,8,16,8">
+            <ListView Grid.Row="1" ItemsSource="{Binding Messages}" Padding="16,8,16,8">
                 <ListView.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding}" TextWrapping="Wrap" />
@@ -143,7 +156,7 @@
             </ListView>
 
             <!-- Input row -->
-            <Grid Grid.Row="1" Padding="12" ColumnSpacing="8">
+            <Grid Grid.Row="2" Padding="12" ColumnSpacing="8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />

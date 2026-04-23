@@ -10,6 +10,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- `windows/StealthMessage`: room switching now works correctly in host mode.
+  - `StealthServer`: added room name to all callbacks (`OnPeerConnected`, `OnPeerDisconnected`, `OnMessage`, `OnJoinRequest`).
+  - `HostViewModel`: per-room message logs and peer lists; `Messages` and `ConnectedPeers` properties now return the selected room's collections; `SelectedRoom` property switches the active room and refreshes both lists; `SendMessageAsync` targets only peers in the selected room; single `_peersLock` guards both alias dictionaries.
+  - `HostView.xaml`: rooms `ListView` has `SelectedItem="{Binding SelectedRoom, Mode=TwoWay}"` so clicking a room activates it; added active-room header above the message log; pending approval items now show the room name.
+
+### Fixed
 - `windows/StealthMessage.Core`: protocol compliance — `pubkey` JSON field name (was `pub_key`; caused 1011 internal error on all incoming connections) and protocol version string `"1"` (was `"0.8"`). Affected `WireMessage.cs` (parse + serialize), `StealthServer.cs`, and `StealthClient.cs`. Updated `WireMessageTests.cs` to match.
 - `windows/StealthMessage.Core`: `pubkey` wire encoding — server hello was sending the raw ASCII-armored key instead of `base64url(armored_bytes)` as required by protocol §2. Fixed in `StealthServer.cs` (encode on send, decode on receive) and `StealthClient.cs` (encode on send).
 - `windows/StealthMessage.Core/Network/StealthServer.cs`: base64url decode used naive `+ "=="` padding causing `FormatException` when key bytes are divisible by 3 (length % 4 == 0), producing 1011 internal error on every connection. Added correct padding helper (`switch (length % 4)`). Also: `SendPeerListToRoomAsync` now sends each peer a list of OTHER peers only (protocol §3); `HandleListRoomsAsync` now emits `"1:1"` in the wire kind field (protocol §1); `OnPeerConnected` and `OnMessage` callbacks now carry the peer's armoredPub; added `SendToAsync` and `GetPeerArmoredPub` host-send methods.
