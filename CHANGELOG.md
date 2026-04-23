@@ -10,12 +10,16 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
-- `windows/StealthMessage/ViewModels/JoinViewModel.cs`: when the host moves a peer to another
-  room, the Windows client now changes rooms correctly on every subsequent move.
-  The root cause was `ConnectAsync()` being called directly from the receive-loop background
-  thread inside `OnMoved`, causing silent cross-thread violations when updating UI-bound
-  properties (`RoomId`, `IsConnected`, `Messages`, etc.) in WinUI 3.  The reconnection is
-  now dispatched to the UI thread via `_dispatcher.TryEnqueue` after the old client is disposed.
+- `windows/StealthMessage/ViewModels/JoinViewModel.cs`: room-move (host moves peer) now works
+  reliably.  Two bugs were present:
+  1. **UI-thread violation** — `ConnectAsync` was called from the receive-loop background thread,
+     silently failing when updating UI-bound properties.  Fixed by dispatching reconnection to the
+     UI thread via `_dispatcher.TryEnqueue`.
+  2. **Async self-deadlock** — `await oldClient.DisposeAsync()` inside `OnMoved` called
+     `await _receiveTask` inside `DisconnectAsync`, which is the currently-running receive loop,
+     creating a circular wait that froze all involved tasks indefinitely.  Fixed by switching to
+     fire-and-forget (`_ = oldClient.DisposeAsync().AsTask()`) so the receive loop can complete
+     its current iteration and exit via cancellation token check before the dispose runs.
 
 ### Added
 - `windows/StealthMessage`: navigation between Hub ↔ Host and Hub ↔ Join now works correctly.

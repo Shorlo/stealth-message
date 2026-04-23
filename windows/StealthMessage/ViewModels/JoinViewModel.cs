@@ -204,7 +204,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                 await Task.CompletedTask;
             };
 
-            _client.OnMoved = async frame =>
+            _client.OnMoved = frame =>
             {
                 string newRoom = frame.Room;
                 string ts      = Ts();
@@ -214,7 +214,10 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                 if (oldClient is not null)
                 {
                     oldClient.OnDisconnected = null;
-                    await oldClient.DisposeAsync();
+                    // Fire-and-forget: awaiting DisposeAsync from within the receive-loop
+                    // callback causes a self-deadlock — DisposeAsync calls await _receiveTask,
+                    // which IS the currently running loop.  Letting it go async breaks the cycle.
+                    _ = oldClient.DisposeAsync().AsTask();
                 }
                 // Reconnect on the UI thread — ConnectAsync updates UI-bound properties
                 // directly (IsPending, IsConnected, RoomId, Messages) and must not be
@@ -224,6 +227,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                     RoomId = newRoom;
                     await ConnectAsync();
                 });
+                return Task.CompletedTask;
             };
 
             _client.OnDisconnected = async () =>
