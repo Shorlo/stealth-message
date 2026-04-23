@@ -9,6 +9,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- `windows/StealthMessage/MainWindow.xaml.cs`: window now opens at 900×660 logical pixels
+  (DPI-aware, using `RasterizationScale`) and is centered on the working area of the display
+  it appears on.
+
 ### Fixed
 - `windows/StealthMessage.Core/Network/StealthServer.cs`: group room join now completes correctly.
   `HandleHelloAsync` now sends `server-hello` **before** the `pending` frame. The previous order
