@@ -355,6 +355,24 @@ public sealed class StealthServer : IAsyncDisposable
             }
         }
 
+        // Decode client's pubkey — base64url(armored_bytes) per protocol §2
+        string peerArmored;
+        try
+        {
+            peerArmored = Encoding.UTF8.GetString(Base64UrlDecode(hello.PubKey));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Invalid pubkey encoding from '{Alias}'.", hello.Alias);
+            await SendErrorAsync(ws, ProtocolException.Malformed, "Invalid pubkey encoding.");
+            return;
+        }
+
+        // Send server hello FIRST — client expects this before any pending frame
+        string encodedPub = Base64UrlEncode(Encoding.UTF8.GetBytes(ArmoredPub));
+        await SendRawAsync(ws, WireFrameSerializer.Serialize(
+            new ServerHelloFrame(ProtocolVersion, HostAlias, encodedPub)), ct);
+
         // Group room: require host approval unless pre-approved
         bool isGroup = room.Kind == "group";
         if (isGroup)
@@ -385,24 +403,6 @@ public sealed class StealthServer : IAsyncDisposable
                 await SendRawAsync(ws, WireFrameSerializer.Serialize(new ApprovedFrame()), ct);
             }
         }
-
-        // Decode client's pubkey — base64url(armored_bytes) per protocol §2
-        string peerArmored;
-        try
-        {
-            peerArmored = Encoding.UTF8.GetString(Base64UrlDecode(hello.PubKey));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Invalid pubkey encoding from '{Alias}'.", hello.Alias);
-            await SendErrorAsync(ws, ProtocolException.Malformed, "Invalid pubkey encoding.");
-            return;
-        }
-
-        // Send server hello — encode own pubkey as base64url(armored_bytes) per protocol §2
-        string encodedPub = Base64UrlEncode(Encoding.UTF8.GetBytes(ArmoredPub));
-        await SendRawAsync(ws, WireFrameSerializer.Serialize(
-            new ServerHelloFrame(ProtocolVersion, HostAlias, encodedPub)), ct);
 
         var peer = new ConnectedPeer
         {

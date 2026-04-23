@@ -30,6 +30,13 @@ public sealed partial class HostView : UserControl
         Vm.KickCommand.Execute(peer);
     }
 
+    private void MoveButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        if (Vm is null || PeersListView.SelectedItem is not PeerViewModel peer) return;
+        if (MoveRoomComboBox.SelectedItem is not string targetRoom) return;
+        Vm.MoveCommand.Execute((peer, targetRoom));
+    }
+
     private void ApproveButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
         if (Vm is null) return;

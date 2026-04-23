@@ -10,6 +10,19 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- `windows/StealthMessage.Core/Network/StealthServer.cs`: group room join now completes correctly.
+  `HandleHelloAsync` now sends `server-hello` **before** the `pending` frame. The previous order
+  (pending → approved → server-hello) violated the protocol handshake expected by the CLI client,
+  which raised `"expected hello, got 'pending'"` and aborted the join.
+- `windows/StealthMessage.Core/Network/StealthClient.cs`: updated handshake to match corrected
+  server order — always reads `server-hello` as the first frame, then peeks 600 ms for an optional
+  `pending` frame (group rooms). Any non-pending frame received during the peek (e.g. peer-list for
+  1:1 rooms) is buffered and dispatched at the start of the receive loop.
+- `windows/StealthMessage/Views/HostView.xaml`, `HostView.xaml.cs`: added **Move** action to the
+  selected-peer context area — a `ComboBox` bound to `Rooms` lets the host pick a target room and
+  a Move button invokes `MoveCommand` on the selected peer.
+
+### Fixed
 - `windows/StealthMessage`: room switching now works correctly in host mode.
   - `StealthServer`: added room name to all callbacks (`OnPeerConnected`, `OnPeerDisconnected`, `OnMessage`, `OnJoinRequest`).
   - `HostViewModel`: per-room message logs and peer lists; `Messages` and `ConnectedPeers` properties now return the selected room's collections; `SelectedRoom` property switches the active room and refreshes both lists; `SendMessageAsync` targets only peers in the selected room; single `_peersLock` guards both alias dictionaries.

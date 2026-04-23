@@ -97,6 +97,11 @@
                                          Converter={StaticResource NotNullToVisibilityConverter}}">
                     <Button Content="Kick" Padding="8,4"
                             Click="KickButton_Click" />
+                    <ComboBox x:Name="MoveRoomComboBox"
+                              ItemsSource="{Binding Rooms}"
+                              MinWidth="80" />
+                    <Button Content="Move" Padding="8,4"
+                            Click="MoveButton_Click" />
                 </StackPanel>
 
                 <!-- Pending approvals -->

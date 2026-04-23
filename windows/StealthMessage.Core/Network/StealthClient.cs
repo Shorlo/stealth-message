@@ -23,6 +23,8 @@ public sealed class StealthClient : IAsyncDisposable
     private CancellationTokenSource?        _cts;
     private Task?                           _receiveTask;
     private Task?                           _pingTask;
+    // Frame received during handshake peek (e.g. peer-list for 1:1 rooms); dispatched first in receive loop
+    private WireFrame?                      _bufferedFrame;
 
     // Peer identity — populated after handshake
     public string? PeerAlias         { get; private set; }
@@ -68,47 +70,47 @@ public sealed class StealthClient : IAsyncDisposable
         var hello = new HelloFrame("1", roomId, alias, encodedPub);
         await SendRawAsync(WireFrameSerializer.Serialize(hello), cancellationToken);
 
-        // Wait for server-hello or error (10 s timeout)
+        // Server always sends server-hello first (before any pending frame)
         using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         handshakeCts.CancelAfter(HandshakeTimeout);
         var response = await ReceiveFrameAsync(handshakeCts.Token);
 
-        switch (response)
-        {
-            case ServerHelloFrame serverHello:
-                // Decode server's pubkey (base64url → armored string)
-                try
-                {
-                    PeerAlias         = serverHello.Alias;
-                    PeerArmoredPubkey = Encoding.UTF8.GetString(Base64UrlDecode(serverHello.PubKey));
-                }
-                catch (Exception ex)
-                {
-                    throw new ProtocolException(ProtocolException.Malformed,
-                        $"Invalid pubkey encoding in server hello: {ex.Message}");
-                }
-                _logger.LogInformation("Handshake complete (direct join). Peer: {Alias}.", PeerAlias);
-                break;
+        if (response is ErrorFrame earlyErr)
+            throw new ProtocolException(earlyErr.Code, earlyErr.Reason);
 
-            case PendingFrame:
-                _logger.LogInformation("Join pending — waiting for host approval.");
-                using (var pendingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        if (response is not ServerHelloFrame serverHello)
+            throw new ProtocolException(ProtocolException.Malformed,
+                $"Expected server-hello, got {response.GetType().Name}");
+
+        try
+        {
+            PeerAlias         = serverHello.Alias;
+            PeerArmoredPubkey = Encoding.UTF8.GetString(Base64UrlDecode(serverHello.PubKey));
+        }
+        catch (Exception ex)
+        {
+            throw new ProtocolException(ProtocolException.Malformed,
+                $"Invalid pubkey encoding in server hello: {ex.Message}");
+        }
+
+        // Peek for optional pending frame (group rooms, not pre-approved).
+        // 600 ms window — if nothing arrives the room is 1:1 or peer is pre-approved.
+        // Any non-pending frame (e.g. peer-list for 1:1) is buffered for the receive loop.
+        using (var peekCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        {
+            peekCts.CancelAfter(TimeSpan.FromMilliseconds(600));
+            try
+            {
+                var peek = await ReceiveFrameAsync(peekCts.Token);
+                if (peek is PendingFrame)
                 {
+                    _logger.LogInformation("Join pending — waiting for host approval.");
+                    using var pendingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                     pendingCts.CancelAfter(PendingTimeout);
                     var approval = await ReceiveFrameAsync(pendingCts.Token);
                     switch (approval)
                     {
                         case ApprovedFrame:
-                            var serverHello2 = await ReceiveFrameAsync(cancellationToken);
-                            if (serverHello2 is ServerHelloFrame sh2)
-                            {
-                                try
-                                {
-                                    PeerAlias         = sh2.Alias;
-                                    PeerArmoredPubkey = Encoding.UTF8.GetString(Base64UrlDecode(sh2.PubKey));
-                                }
-                                catch { /* best-effort — server hello after approval may not repeat pubkey */ }
-                            }
                             _logger.LogInformation("Host approved.");
                             break;
                         case ErrorFrame err:
@@ -118,15 +120,19 @@ public sealed class StealthClient : IAsyncDisposable
                                 $"Unexpected frame while pending: {approval.GetType().Name}");
                     }
                 }
-                break;
-
-            case ErrorFrame err:
-                throw new ProtocolException(err.Code, err.Reason);
-
-            default:
-                throw new ProtocolException(ProtocolException.Malformed,
-                    $"Expected server-hello, got {response.GetType().Name}");
+                else
+                {
+                    // Non-pending frame arrived (e.g. peer-list for 1:1 room) — buffer for dispatch
+                    _bufferedFrame = peek;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Timeout — no extra frame, direct join
+            }
         }
+
+        _logger.LogInformation("Handshake complete. Peer: {Alias}.", PeerAlias);
 
         _cts         = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _receiveTask = Task.Run(() => ReceiveLoopAsync(_cts.Token));
@@ -218,6 +224,13 @@ public sealed class StealthClient : IAsyncDisposable
     {
         try
         {
+            // Dispatch any frame that arrived during the handshake peek
+            if (_bufferedFrame is not null)
+            {
+                await DispatchAsync(_bufferedFrame, ct);
+                _bufferedFrame = null;
+            }
+
             while (!ct.IsCancellationRequested)
             {
                 string json;
