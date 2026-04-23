@@ -216,8 +216,14 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                     oldClient.OnDisconnected = null;
                     await oldClient.DisposeAsync();
                 }
-                RoomId = newRoom;
-                await ConnectAsync();
+                // Reconnect on the UI thread — ConnectAsync updates UI-bound properties
+                // directly (IsPending, IsConnected, RoomId, Messages) and must not be
+                // called from a background thread to avoid cross-thread violations.
+                _ = _dispatcher.TryEnqueue(async () =>
+                {
+                    RoomId = newRoom;
+                    await ConnectAsync();
+                });
             };
 
             _client.OnDisconnected = async () =>

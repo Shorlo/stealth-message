@@ -9,6 +9,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- `windows/StealthMessage/ViewModels/JoinViewModel.cs`: when the host moves a peer to another
+  room, the Windows client now changes rooms correctly on every subsequent move.
+  The root cause was `ConnectAsync()` being called directly from the receive-loop background
+  thread inside `OnMoved`, causing silent cross-thread violations when updating UI-bound
+  properties (`RoomId`, `IsConnected`, `Messages`, etc.) in WinUI 3.  The reconnection is
+  now dispatched to the UI thread via `_dispatcher.TryEnqueue` after the old client is disposed.
+
 ### Added
 - `windows/StealthMessage`: navigation between Hub ↔ Host and Hub ↔ Join now works correctly.
   - `HostView` and `JoinView` each have a **← Hub** button that returns to the Hub screen
