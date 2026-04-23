@@ -103,26 +103,29 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
             {
                 string plaintext = await _pgp.DecryptAsync(
                     payload, armoredPriv, peerArmoredPub, passphrase);
+                string ts = Ts();
                 _ = _dispatcher.TryEnqueue(() =>
                 {
                     if (_roomMessages.TryGetValue(room, out var msgs))
-                        msgs.Add($"[{alias}] {plaintext}");
+                        msgs.Add($"[{ts}] [{alias}] {plaintext}");
                 });
             }
             catch (SignatureInvalidException)
             {
+                string ts = Ts();
                 _ = _dispatcher.TryEnqueue(() =>
                 {
                     if (_roomMessages.TryGetValue(room, out var msgs))
-                        msgs.Add($"[!] Message from {alias} discarded — invalid signature.");
+                        msgs.Add($"[{ts}] [!] Message from {alias} discarded — invalid signature.");
                 });
             }
             catch (Exception ex)
             {
+                string ts = Ts();
                 _ = _dispatcher.TryEnqueue(() =>
                 {
                     if (_roomMessages.TryGetValue(room, out var msgs))
-                        msgs.Add($"[{alias}]: <decryption failed: {ex.Message}>");
+                        msgs.Add($"[{ts}] [{alias}] <decryption failed: {ex.Message}>");
                 });
             }
         };
@@ -303,10 +306,11 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
 
         if (peers.Count == 0)
         {
+            string ts0 = Ts();
             _ = _dispatcher.TryEnqueue(() =>
             {
                 if (_roomMessages.TryGetValue(room, out var log))
-                    log.Add("[System] No peers in this room.");
+                    log.Add($"[{ts0}] [System] No peers in this room.");
                 MessageInput = string.Empty;
             });
             return;
@@ -324,18 +328,20 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
             }
             catch (Exception ex)
             {
+                string ts = Ts();
                 _ = _dispatcher.TryEnqueue(() =>
                 {
                     if (_roomMessages.TryGetValue(room, out var log))
-                        log.Add($"[!] Failed to send to {peerAlias}: {ex.Message}");
+                        log.Add($"[{ts}] [!] Failed to send to {peerAlias}: {ex.Message}");
                 });
             }
         }
 
+        string tsSent = Ts();
         _ = _dispatcher.TryEnqueue(() =>
         {
             if (_roomMessages.TryGetValue(room, out var log))
-                log.Add($"[{alias}] {text}");
+                log.Add($"[{tsSent}] [{alias}] {text}");
             MessageInput = string.Empty;
         });
     }
@@ -367,15 +373,18 @@ public sealed class HostViewModel : INotifyPropertyChanged, IAsyncDisposable
             _roomPeers[room] = new ObservableCollection<PeerViewModel>();
     }
 
+    private static string Ts() => DateTimeOffset.Now.ToString("HH:mm");
+
     /// <summary>Adds a system message to the currently selected room (or first available).</summary>
     private void AddSystemMessage(string msg)
     {
+        string entry = $"[{Ts()}] {msg}";
         ObservableCollection<string>? target = null;
         if (!string.IsNullOrEmpty(_selectedRoom))
             _roomMessages.TryGetValue(_selectedRoom, out target);
         if (target is null && _roomMessages.Count > 0)
             target = _roomMessages.Values.First();
-        target?.Add(msg);
+        target?.Add(entry);
     }
 
     // ---------------------------------------------------------------------------

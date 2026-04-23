@@ -9,6 +9,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `windows/StealthMessage`: messages in the chat now include a `[HH:mm]` timestamp prefix
+  (local time captured at the moment of receipt/send). Applies to user messages, system messages,
+  and error notices in both host mode (`HostViewModel`) and peer mode (`JoinViewModel`).
+
 ### Changed
 - `windows/StealthMessage/MainWindow.xaml.cs`: window now opens at 900×660 logical pixels
   (DPI-aware, using `RasterizationScale`) and is centered on the working area of the display

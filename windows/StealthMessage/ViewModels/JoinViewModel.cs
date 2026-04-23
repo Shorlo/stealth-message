@@ -161,15 +161,18 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                     string senderPub = peerPub ?? armoredPub;
                     string plaintext = await _pgp.DecryptAsync(frame.Payload, armoredPriv, senderPub, passphrase);
                     string sender    = frame.Sender ?? PeerAlias;
-                    _dispatcher.TryEnqueue(() => Messages.Add($"[{sender}] {plaintext}"));
+                    string ts        = Ts();
+                    _dispatcher.TryEnqueue(() => Messages.Add($"[{ts}] [{sender}] {plaintext}"));
                 }
                 catch (SignatureInvalidException)
                 {
-                    _dispatcher.TryEnqueue(() => Messages.Add("[!] Message discarded — invalid signature."));
+                    string ts = Ts();
+                    _dispatcher.TryEnqueue(() => Messages.Add($"[{ts}] [!] Message discarded — invalid signature."));
                 }
                 catch (Exception ex)
                 {
-                    _dispatcher.TryEnqueue(() => Messages.Add($"[!] Decryption failed: {ex.Message}"));
+                    string ts = Ts();
+                    _dispatcher.TryEnqueue(() => Messages.Add($"[{ts}] [!] Decryption failed: {ex.Message}"));
                 }
             };
 
@@ -191,9 +194,10 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
 
             _client.OnKicked = async frame =>
             {
+                string ts = Ts();
                 _dispatcher.TryEnqueue(() =>
                 {
-                    Messages.Add($"[System] You were kicked: {frame.Reason}");
+                    Messages.Add($"[{ts}] [System] You were kicked: {frame.Reason}");
                     IsConnected = false;
                     IsPending   = false;
                 });
@@ -203,7 +207,8 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
             _client.OnMoved = async frame =>
             {
                 string newRoom = frame.Room;
-                _dispatcher.TryEnqueue(() => Messages.Add($"[System] Moved to room: {newRoom}"));
+                string ts      = Ts();
+                _dispatcher.TryEnqueue(() => Messages.Add($"[{ts}] [System] Moved to room: {newRoom}"));
                 var oldClient = _client;
                 _client = null;
                 if (oldClient is not null)
@@ -217,18 +222,19 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
 
             _client.OnDisconnected = async () =>
             {
+                string ts = Ts();
                 _dispatcher.TryEnqueue(() =>
                 {
                     IsConnected = false;
                     IsPending   = false;
-                    Messages.Add("[System] Disconnected.");
+                    Messages.Add($"[{ts}] [System] Disconnected.");
                 });
                 await Task.CompletedTask;
             };
 
             IsPending   = false;
             IsConnected = true;
-            Messages.Add($"[System] Connected. Host: {hostAlias}");
+            Messages.Add($"[{Ts()}] [System] Connected. Host: {hostAlias}");
         }
         catch (ProtocolException ex)
         {
@@ -257,7 +263,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
         if (client is not null) await client.DisposeAsync();
         IsConnected = false;
         IsPending   = false;
-        Messages.Add("[System] Disconnected.");
+        Messages.Add($"[{Ts()}] [System] Disconnected.");
     }
 
     // ---------------------------------------------------------------------------
@@ -283,9 +289,10 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             string encrypted = await _pgp.EncryptAsync(text, recipientPub, armoredPriv, passphrase);
             await _client.SendMessageAsync(encrypted);
+            string ts = Ts();
             _dispatcher.TryEnqueue(() =>
             {
-                Messages.Add($"[{alias}] {text}");
+                Messages.Add($"[{ts}] [{alias}] {text}");
                 MessageInput = string.Empty;
             });
         }
@@ -298,6 +305,8 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
     // ---------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------
+
+    private static string Ts() => DateTimeOffset.Now.ToString("HH:mm");
 
     private static string NormaliseUri(string raw)
     {
