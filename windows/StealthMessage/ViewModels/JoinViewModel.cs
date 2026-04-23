@@ -151,6 +151,10 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
             string? peerPub   = _client.PeerArmoredPubkey;
             string  hostAlias = _client.PeerAlias ?? "Host";
             if (!string.IsNullOrEmpty(hostAlias)) PeerAlias = hostAlias;
+            // For 1:1 rooms the server never sends a peerlist, so compute the fingerprint
+            // directly from the host pubkey received in server-hello.
+            if (!string.IsNullOrEmpty(peerPub))
+                try { PeerFingerprint = _pgp.GetFingerprint(peerPub); } catch { }
 
             // Set up callbacks now — receive loop is running but we haven't missed anything yet
             _client.OnMessage = async frame =>

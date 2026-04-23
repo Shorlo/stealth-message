@@ -10,6 +10,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- `windows/StealthMessage.Core/Network/WireMessage.cs` — `roomsinfo` parser threw
+  `KeyNotFoundException` on group-room entries because it called `GetProperty("available")`
+  unconditionally.  The CLI server omits `available` for group rooms; switched to
+  `TryGetProperty` with a `false` default so group rooms parse correctly.
+- `windows/StealthMessage/ViewModels/JoinViewModel.cs` — peer fingerprint was never shown
+  for 1:1 rooms.  The CLI server only broadcasts a `peerlist` frame in group rooms, so
+  `OnPeerList` never fired for 1:1 rooms.  Fingerprint is now computed directly from the
+  host's public key received in `server-hello`.
 - `windows/StealthMessage/ViewModels/HubViewModel.cs` — `BuildServerUri` produced an
   invalid URL in two cases: (1) `!addr.Contains(':')` matched the `ws:` scheme colon so the
   default port was never appended when the user omitted it; (2) `host/port` shorthand

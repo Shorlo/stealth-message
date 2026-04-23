@@ -120,7 +120,8 @@ public static class WireFrameSerializer
                         r.GetString("id"),
                         r.GetString("kind"),
                         r.GetInt("peers"),
-                        r.GetBool("available")))
+                        // "available" is only present for 1:1 rooms; absent for group rooms
+                        r.TryGetProperty("available", out var av) && av.GetBoolean()))
                     .ToList()),
             "pending"   => new PendingFrame(),
             "approved"  => new ApprovedFrame(),
