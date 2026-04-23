@@ -7,16 +7,14 @@ namespace StealthMessage.Views;
 
 public sealed partial class JoinView : UserControl
 {
-    // Track the ViewModel we are currently subscribed to so we can unsubscribe when it changes.
+    // Track the ViewModel we are subscribed to so we can unsubscribe when it changes.
+    // WinUI 3 DataContextChangedEventArgs only has NewValue, so we manage old-VM ourselves.
     private JoinViewModel? _subscribedVm;
 
     public JoinView()
     {
         InitializeComponent();
 
-        // Subscribe / unsubscribe from Messages when the ViewModel changes so the
-        // ListView always scrolls to the bottom when a new message arrives.
-        // WinUI 3 DataContextChangedEventArgs only exposes NewValue — track old VM ourselves.
         DataContextChanged += (_, e) =>
         {
             if (_subscribedVm is not null)
@@ -32,9 +30,12 @@ public sealed partial class JoinView : UserControl
     private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (e.Action != NotifyCollectionChangedAction.Add) return;
-        int count = MessageList.Items.Count;
-        if (count > 0)
-            MessageList.ScrollIntoView(MessageList.Items[count - 1]);
+        // Defer to the next layout pass (Low priority) so the new item is measured before
+        // we scroll.  Using ChangeView on the ScrollViewer avoids the re-virtualization
+        // flicker that ListView.ScrollIntoView triggers in WinUI 3.
+        _ = DispatcherQueue.TryEnqueue(
+            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            () => MessageScroller.ChangeView(null, double.MaxValue, null, disableAnimation: true));
     }
 
     private void MessageBox_KeyDown(object sender, KeyRoutedEventArgs e)

@@ -85,14 +85,32 @@
                         </ListView>
                     </Expander>
 
-                    <!-- Available group rooms — shown when connected; populated from server roomlist frame -->
-                    <Expander Header="Switch room"
-                              Visibility="{Binding AvailableGroupRooms.Count,
+                    <!-- Available rooms — shown when connected; updated via roomlist frames
+                         and a full QueryRoomsAsync on connect.  Current room is filtered out. -->
+                    <Expander Visibility="{Binding AvailableRooms.Count,
                                            Converter={StaticResource CountToVisibilityConverter}}"
                               IsExpanded="True"
                               HorizontalAlignment="Stretch">
-                        <ListView ItemsSource="{Binding AvailableGroupRooms}" MaxHeight="200"
-                                  SelectionMode="None">
+                        <Expander.Header>
+                            <Grid HorizontalAlignment="Stretch">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="Switch room"
+                                           VerticalAlignment="Center" />
+                                <Button Grid.Column="1"
+                                        Content="↻"
+                                        FontSize="14"
+                                        Padding="6,2"
+                                        ToolTipService.ToolTip="Refresh room list"
+                                        Command="{Binding DataContext.RefreshRoomsCommand,
+                                                  ElementName=JoinViewRoot}" />
+                            </Grid>
+                        </Expander.Header>
+                        <ListView ItemsSource="{Binding AvailableRooms}"
+                                  MaxHeight="200" SelectionMode="None">
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Grid ColumnSpacing="8" Padding="0,2">
@@ -139,17 +157,20 @@
                 </StackPanel>
             </Grid>
 
-            <!-- Message log -->
-            <ListView Grid.Row="0" x:Name="MessageList"
-                      ItemsSource="{Binding Messages}"
-                      Padding="16,8,16,8"
-                      Visibility="{Binding IsPending, Converter={StaticResource InverseBoolToVisibilityConverter}}">
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}" TextWrapping="Wrap" />
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+            <!-- Message log — ItemsRepeater + ScrollViewer avoids ListView re-virtualization
+                 flicker when ScrollIntoView is called after each new message. -->
+            <ScrollViewer Grid.Row="0" x:Name="MessageScroller"
+                          Padding="16,8"
+                          VerticalScrollBarVisibility="Auto"
+                          Visibility="{Binding IsPending, Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                <ItemsRepeater ItemsSource="{Binding Messages}">
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,1" />
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+            </ScrollViewer>
 
             <!-- Input -->
             <Grid Grid.Row="1" Padding="12" ColumnSpacing="8"

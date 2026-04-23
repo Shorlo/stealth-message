@@ -32,20 +32,22 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
         _app        = app;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
 
-        ConnectCommand     = new RelayCommand(ConnectAsync,    () => !_isConnected);
-        DisconnectCommand  = new RelayCommand(DisconnectAsync, () =>  _isConnected);
-        SendMessageCommand = new RelayCommand(SendMessageAsync,
+        ConnectCommand      = new RelayCommand(ConnectAsync,    () => !_isConnected);
+        DisconnectCommand   = new RelayCommand(DisconnectAsync, () =>  _isConnected);
+        SendMessageCommand  = new RelayCommand(SendMessageAsync,
             () => _isConnected && !string.IsNullOrWhiteSpace(_messageInput));
-        SwitchRoomCommand  = new RelayCommand<string>(SwitchRoomAsync);
+        SwitchRoomCommand   = new RelayCommand<string>(SwitchRoomAsync);
+        RefreshRoomsCommand = new RelayCommand(RefreshRoomsAsync, () => _isConnected);
     }
 
     // ---------------------------------------------------------------------------
     // Collections
     // ---------------------------------------------------------------------------
 
-    public ObservableCollection<PeerViewModel> Peers              { get; } = new();
-    public ObservableCollection<string>        Messages           { get; } = new();
-    public ObservableCollection<string>        AvailableGroupRooms { get; } = new();
+    public ObservableCollection<PeerViewModel> Peers          { get; } = new();
+    public ObservableCollection<string>        Messages       { get; } = new();
+    /// <summary>All rooms on the server except the one currently joined.</summary>
+    public ObservableCollection<string>        AvailableRooms { get; } = new();
 
     // ---------------------------------------------------------------------------
     // Properties
@@ -112,6 +114,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
             OnPropertyChanged();
             ((RelayCommand)ConnectCommand).NotifyCanExecuteChanged();
             ((RelayCommand)DisconnectCommand).NotifyCanExecuteChanged();
+            ((RelayCommand)RefreshRoomsCommand).NotifyCanExecuteChanged();
         }
     }
 
@@ -119,10 +122,11 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
     // Commands
     // ---------------------------------------------------------------------------
 
-    public ICommand ConnectCommand     { get; }
-    public ICommand DisconnectCommand  { get; }
-    public ICommand SendMessageCommand { get; }
-    public ICommand SwitchRoomCommand  { get; }
+    public ICommand ConnectCommand      { get; }
+    public ICommand DisconnectCommand   { get; }
+    public ICommand SendMessageCommand  { get; }
+    public ICommand SwitchRoomCommand   { get; }
+    public ICommand RefreshRoomsCommand { get; }
 
     // ---------------------------------------------------------------------------
     // Connect
@@ -144,7 +148,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
 
         // Fresh log for every new room — don't bleed messages across sessions
         Messages.Clear();
-        AvailableGroupRooms.Clear();
+        AvailableRooms.Clear();
         Peers.Clear();
         PeerFingerprint = string.Empty;
 
@@ -165,12 +169,11 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
             if (!string.IsNullOrEmpty(peerPub))
                 try { PeerFingerprint = _pgp.GetFingerprint(peerPub); } catch { }
 
-            // Set up callbacks now — receive loop is running but we haven't missed anything yet
+            // Set up callbacks — receive loop is running but we haven't missed anything yet
             _client.OnMessage = async frame =>
             {
                 try
                 {
-                    // Use the host's armoredPub (from server hello) to verify the signature
                     string senderPub = peerPub ?? armoredPub;
                     string plaintext = await _pgp.DecryptAsync(frame.Payload, armoredPriv, senderPub, passphrase);
                     string sender    = frame.Sender ?? PeerAlias;
@@ -205,13 +208,17 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                 await Task.CompletedTask;
             };
 
+            // The server sends roomlist immediately after join — use it to seed AvailableRooms
+            // with group rooms.  A full QueryRoomsAsync (started below) adds 1:1 rooms too.
             _client.OnRoomList = frame =>
             {
                 _dispatcher.TryEnqueue(() =>
                 {
-                    AvailableGroupRooms.Clear();
                     foreach (var room in frame.Groups)
-                        AvailableGroupRooms.Add(room);
+                    {
+                        if (room != _roomId && !AvailableRooms.Contains(room))
+                            AvailableRooms.Add(room);
+                    }
                 });
                 return Task.CompletedTask;
             };
@@ -224,7 +231,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                     Messages.Add($"[{ts}] [System] You were kicked: {frame.Reason}");
                     IsConnected = false;
                     IsPending   = false;
-                    AvailableGroupRooms.Clear();
+                    AvailableRooms.Clear();
                 });
                 await Task.CompletedTask;
             };
@@ -237,14 +244,8 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                 if (oldClient is not null)
                 {
                     oldClient.OnDisconnected = null;
-                    // Fire-and-forget: awaiting DisposeAsync from within the receive-loop
-                    // callback causes a self-deadlock — DisposeAsync calls await _receiveTask,
-                    // which IS the currently running loop.  Letting it go async breaks the cycle.
                     _ = oldClient.DisposeAsync().AsTask();
                 }
-                // Reconnect on the UI thread — ConnectAsync updates UI-bound properties
-                // directly (IsPending, IsConnected, RoomId, Messages) and must not be
-                // called from a background thread to avoid cross-thread violations.
                 _ = _dispatcher.TryEnqueue(async () =>
                 {
                     RoomId = newRoom;
@@ -260,7 +261,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
                 {
                     IsConnected = false;
                     IsPending   = false;
-                    AvailableGroupRooms.Clear();
+                    AvailableRooms.Clear();
                     Messages.Add($"[{ts}] [System] Disconnected.");
                 });
                 await Task.CompletedTask;
@@ -269,6 +270,10 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
             IsPending   = false;
             IsConnected = true;
             Messages.Add($"[{Ts()}] [System] Connected to {_roomId}. Host: {hostAlias}");
+
+            // Query ALL rooms (1:1 + group) in the background so the Switch room
+            // panel shows every room the user can move to, not just group rooms.
+            _ = Task.Run(RefreshRoomsAsync);
         }
         catch (ProtocolException ex)
         {
@@ -297,7 +302,7 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
         if (client is not null) await client.DisposeAsync();
         IsConnected = false;
         IsPending   = false;
-        AvailableGroupRooms.Clear();
+        AvailableRooms.Clear();
         Messages.Add($"[{Ts()}] [System] Disconnected.");
     }
 
@@ -312,13 +317,37 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
         _client = null;
         if (client is not null)
         {
-            client.OnDisconnected = null;  // suppress the generic disconnect event
+            client.OnDisconnected = null;
             await client.DisposeAsync();
         }
         IsConnected = false;
         IsPending   = false;
         RoomId      = newRoom;
         await ConnectAsync();
+    }
+
+    // ---------------------------------------------------------------------------
+    // Refresh room list (queries server for all available rooms)
+    // ---------------------------------------------------------------------------
+
+    private async Task RefreshRoomsAsync()
+    {
+        if (!Uri.TryCreate(NormaliseUri(_serverUri), UriKind.Absolute, out var uri)) return;
+        try
+        {
+            var rooms = await StealthClient.QueryRoomsAsync(uri, NullLogger<StealthClient>.Instance);
+            string current = _roomId;
+            _dispatcher.TryEnqueue(() =>
+            {
+                AvailableRooms.Clear();
+                foreach (var r in rooms)
+                {
+                    if (r.Id != current)
+                        AvailableRooms.Add(r.Id);
+                }
+            });
+        }
+        catch { /* non-fatal — panel stays with whatever was known */ }
     }
 
     // ---------------------------------------------------------------------------
@@ -331,7 +360,6 @@ public sealed class JoinViewModel : INotifyPropertyChanged, IAsyncDisposable
 
         var (armoredPriv, _, alias, passphrase) = _app.GetCredentials();
 
-        // Encrypt for the host's public key (received during handshake)
         string? recipientPub = _client.PeerArmoredPubkey;
         if (recipientPub is null)
         {

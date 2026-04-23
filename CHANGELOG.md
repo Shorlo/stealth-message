@@ -11,17 +11,23 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 ### Added
-- `windows/StealthMessage/Views/JoinView` — **Switch room** panel: the server sends a
-  `roomlist` frame right after the handshake containing all available group rooms.  The
-  panel lists them with a "Switch" button each; clicking it disconnects from the current
-  room and reconnects to the selected one (host approval flow applies for group rooms).
+- `windows/StealthMessage/Views/JoinView` — **Switch room** panel: after connecting the
+  client queries the server for all available rooms (1:1 and group) and lists them in a
+  collapsible panel.  Each entry has a "Switch" button to reconnect to that room; a "↻"
+  button in the header re-queries on demand.  The current room is always filtered out.
 - `windows/StealthMessage/Views/JoinView` — **auto-scroll**: the message log now scrolls
-  to the newest message automatically whenever one is added.
+  to the newest message automatically.  The `ListView` was replaced with
+  `ItemsRepeater` + `ScrollViewer` to eliminate the re-virtualization flicker that
+  `ListView.ScrollIntoView` causes in WinUI 3; `ScrollViewer.ChangeView` is used instead.
 
 ### Fixed
 - `windows/StealthMessage/ViewModels/JoinViewModel.cs` — message log and room state are
   now cleared at the start of every new connection, so history from a previous room is
   never shown after a room switch or a host-initiated move.
+- `windows/StealthMessage/Views/JoinView` — all messages flashing / disappearing and
+  reappearing whenever a new message arrived.  Root cause: `ListView.ScrollIntoView` in
+  WinUI 3 triggers a full re-virtualization pass.  Fixed by switching to
+  `ItemsRepeater` + `ScrollViewer.ChangeView(disableAnimation: true)`.
 - `windows/StealthMessage.Core/Network/WireMessage.cs` — `roomsinfo` parser threw
   `KeyNotFoundException` on group-room entries because it called `GetProperty("available")`
   unconditionally.  The CLI server omits `available` for group rooms; switched to
